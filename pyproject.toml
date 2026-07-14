@@ -1,0 +1,17 @@
+[project]
+name = "eml-lab"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = "==3.8.10"
+dependencies = [
+    "ipykernel>=6.29.5",
+    "jupyter>=1.1.1",
+    "matplotlib>=3.7.5",
+    "numpy>=1.24.4",
+    "pip>=25.0.1",
+    "torch>=2.4.1",
+    "torchinfo>=1.8.0",
+    "torchvision>=0.19.1",
+    "tqdm>=4.68.4",
+]
