@@ -13,6 +13,7 @@ pkgs.mkShell.override { stdenv = pkgs.gccStdenv; } {
     pkg-config
     cmake
     uv  # Added uv so anyone using this shell has it installed
+    pyright
   ];
 
   # Development libraries and headers
@@ -40,6 +41,9 @@ pkgs.mkShell.override { stdenv = pkgs.gccStdenv; } {
 
   shellHook = ''
     export SSL_CERT_FILE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+
+    # required for python interpreter to work
+    export NIX_LD="${pkgs.stdenv.cc.libc}/lib/ld-linux-x86-64.so.2"
     
     # 1. Handle system-level OpenGL drivers (NixOS specific paths)
     export LD_LIBRARY_PATH="/run/opengl-driver/lib:/run/opengl-driver-32/lib:$LD_LIBRARY_PATH"
@@ -53,6 +57,9 @@ pkgs.mkShell.override { stdenv = pkgs.gccStdenv; } {
       libxcrypt-legacy
       zlib
     ])}:$LD_LIBRARY_PATH"
+
+    # required for python interpreter to work
+    export NIX_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
     
     # 3. Automatically handle the python virtual environment
     if [ ! -d .venv ]; then
