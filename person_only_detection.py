@@ -5,8 +5,8 @@ from utils.dataloader import VOCDataLoader, VOCDataLoaderPerson
 from tinyyolov2 import TinyYoloV2
 from utils.loss import YoloLoss
 
-loader = VOCDataLoaderPerson(train=True, batch_size=128)
-loader_test = VOCDataLoaderPerson(train=False, batch_size=1)
+loader = VOCDataLoaderPerson(split="train", batch_size=128)
+loader_test = VOCDataLoaderPerson(split="val", batch_size=1)
 
 DEVICE = 'cuda'
 
@@ -39,12 +39,14 @@ from utils.yolo import nms, filter_boxes
 from utils.viz import display_result
 
 NUM_TEST_SAMPLES = 350
-NUM_EPOCHS = 5
+NUM_EPOCHS = 20
+
 test_AP = []
 
-net.train()
 
 for epoch_n in range(NUM_EPOCHS):
+
+    net.train()
     for idx, (inputs, targets) in tqdm.tqdm(enumerate(loader), total=len(loader)):
 
         optimizer.zero_grad()
@@ -59,6 +61,7 @@ for epoch_n in range(NUM_EPOCHS):
     test_precision = []
     test_recall = []
 
+    net.eval()
     with torch.no_grad():
         for idx, (inputs, targets) in tqdm.tqdm(enumerate(loader_test), total=NUM_TEST_SAMPLES):
             
@@ -82,7 +85,48 @@ for epoch_n in range(NUM_EPOCHS):
     print('average precision', test_AP)
 
     #plot ROC
-    display_roc(test_precision, test_recall)
+    #display_roc(test_precision, test_recall)
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+epochs = range(0, NUM_EPOCHS)
+
+plt.figure(figsize=(10, 6))
+
+# Plot the main AP progression line
+plt.plot(range(0, NUM_EPOCHS), test_AP, marker='o', color='teal', linewidth=2, 
+         markersize=6, label='Validation AP')
+
+# Automatically find and highlight the peak performance
+best_epoch_idx = np.argmax(test_AP)
+best_epoch = epochs[best_epoch_idx]
+best_ap = test_AP[best_epoch_idx]
+
+# Plot a distinct marker over the best epoch
+plt.plot(best_epoch, best_ap, marker='*', color='gold', markersize=15, 
+         markeredgecolor='black', label=f'Best AP ({best_ap:.3f} at Epoch {best_epoch})')
+
+# Formatting and labels
+plt.title('Average Precision (AP) Over Training Epochs', fontsize=14, pad=15)
+plt.xlabel('Epoch', fontsize=12)
+plt.ylabel('Average Precision (AP)', fontsize=12)
+
+# Lock the Y-axis to standard 0-1 range for metrics
+plt.ylim([0.0, 1.05])
+
+# Force the X-axis to only show integer ticks (you can't have half an epoch)
+# If you have hundreds of epochs, you might want to comment this out so it doesn't clutter
+plt.xticks(epochs)
+
+# Add a subtle grid to help track values across the plot
+plt.grid(True, linestyle='--', alpha=0.6)
+
+# Place legend where it typically won't block the curve (lower right for learning curves)
+plt.legend(loc='lower right', fontsize=11)
+
+plt.tight_layout()
+plt.savefig('results/person_only_detection.png')
 
 torch.save(net.state_dict(), 'state_dicts/yolov2_person_finetuned.pt')
 
