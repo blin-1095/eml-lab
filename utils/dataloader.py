@@ -1,4 +1,5 @@
 import torch
+from torch.utils.data import random_split
 from torchinfo import summary
 import os, json
 
@@ -98,29 +99,55 @@ class VOCTransform:
             return tf.functional.to_tensor(image), target_vectors
 
 
-def VOCDataLoader(train=True, batch_size=32, shuffle=False):
-    if train:
-        image_set = "train"
-    else:
-        image_set = "val"
+def VOCDataLoader(split="train", batch_size=32, shuffle=None):
+
+    if shuffle is None:
+        shuffle = (split == "train")
+    
+    image_set = "train" if split == "train" else "val"
 
     if not os.path.exists("data/VOCdevkit/VOC2012/JPEGImages/2007_000027.jpg"):
         dataset = torchvision.datasets.VOCDetection("data/", year="2012", image_set=image_set, download=True)
 
-    dataset = torchvision.datasets.VOCDetection("data/", year="2012", image_set=image_set, download=False, transforms=VOCTransform(train=train))
+    dataset = torchvision.datasets.VOCDetection("data/", year="2012", image_set=image_set, download=False, transforms=VOCTransform(train=(split == "train")))
+
+    # split validation set into validation and test set
+    if split in ["val", "test"]:
+        total_size = len(dataset)
+        val_size = total_size // 2
+        test_size = total_size - val_size
+        
+        generator = torch.Generator().manual_seed(0)
+        val_dataset, test_dataset = random_split(dataset, [val_size, test_size], generator=generator)
+        
+        dataset = val_dataset if split == "val" else test_dataset
+
     return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
         
-def VOCDataLoaderPerson(train=True, batch_size=32, shuffle=False):
-    if train:
-        image_set = "train"
-    else:
-        image_set = "val"
+def VOCDataLoaderPerson(split="train", batch_size=32, shuffle=None):
+
+    if shuffle is None:
+        shuffle = (split == "train")
+    
+    image_set = "train" if split == "train" else "val"
 
     if not os.path.exists("data/VOCdevkit/VOC2012/JPEGImages/2007_000027.jpg"):
         dataset = torchvision.datasets.VOCDetection("data/", year="2012", image_set=image_set, download=True)
         
     dataset = torchvision.datasets.VOCDetection("data/", year="2012", image_set=image_set, download=False,
-                                transforms=VOCTransform(train=train, only_person=True))
+                                transforms=VOCTransform(train=(split == "train"), only_person=True))
     with open("data/person_indices.json", "r") as fd: indices = list(json.load(fd)[image_set])
     dataset = torch.utils.data.Subset(dataset, indices)
+
+    # split validation set into validation and test set
+    if split in ["val", "test"]:
+        total_size = len(dataset)
+        val_size = total_size // 2
+        test_size = total_size - val_size
+        
+        generator = torch.Generator().manual_seed(0)
+        val_dataset, test_dataset = random_split(dataset, [val_size, test_size], generator=generator)
+        
+        dataset = val_dataset if split == "val" else test_dataset
+
     return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
