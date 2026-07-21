@@ -1,5 +1,6 @@
 
 import torch
+
 torch.rand(1).to('cuda')
 
 import tqdm
@@ -144,6 +145,45 @@ def measure_inference_speed(model: TinyYoloV2, device: str, num_runs: int = 2000
     
     return fps 
 
+def export_model(state_dict: dict, loader: DataLoader, dest: str, device: str):
+
+    sd = copy.deepcopy(state_dict)
+
+    # Export best model in onnx format
+    new_channels = [
+        sd['conv1.weight'].shape[0],
+        sd['conv2.weight'].shape[0],
+        sd['conv3.weight'].shape[0],
+        sd['conv4.weight'].shape[0],
+        sd['conv5.weight'].shape[0],
+        sd['conv6.weight'].shape[0],
+        sd['conv7.weight'].shape[0],
+        sd['conv8.weight'].shape[0]
+    ]
+
+    best_net = TinyYoloV2(num_classes=1, channels=new_channels)
+    best_net.load_state_dict(state_dict)
+    best_net.to(device)
+    best_net.eval()
+
+    export_input, _ = next(iter(loader))
+    export_input = export_input.to(device)
+
+    torch.onnx.export(
+        best_net,
+        export_input,
+        dest,
+        export_params=True,
+        opset_version=11,
+        input_names=['input_image'],
+        output_names=['yolo_output'],
+
+        # dynamic axes so the model can be used with different batch sizes
+        dynamic_axes={'input_image': {0: 'batch_size'}, 'yolo_output': {0: 'batch_size'}}
+    )
+
+    print("Exported the best model to 'models/best_pruned_yolo.onnx'!")
+
 
 def main():
 
@@ -167,7 +207,7 @@ def main():
     loss_retrained = []
     fps_list = []
 
-    best_score: float = 0.0
+    best_score: float = float('inf')
     baseline_fps: float = 1.0  # Placeholder to prevent division errors
     best_state_dict: dict = {}
 
@@ -216,8 +256,6 @@ def main():
 
         optimizer = torch.optim.Adam(net.parameters(), lr=1e-5)    #type: ignore
 
-        net.eval()
-
         # test untrained performance after pruning 
         ap_untrained.append(calculate_ap(model=net, testloader=loader_test, device=DEVICE, samples=len(loader_test)))
         loss_untrained.append(calculate_loss(net, criterion_eval, loader_test, DEVICE, len(loader_test)))
@@ -252,7 +290,7 @@ def main():
                 # VALIDATION
                 net.eval()
                 with torch.no_grad():
-                    current_loss = calculate_loss(net, criterion_train, loader_val, DEVICE, len(loader_val))
+                    current_loss = calculate_loss(net, criterion_eval, loader_val, DEVICE, len(loader_val))
 
                 tqdm.tqdm.write(f"Epoch {epoch_n} | Validation Loss: {current_loss:.4f}")
 
@@ -273,9 +311,7 @@ def main():
 
             # TESTING
             # test retrained performance on test set after epochs finish
-
             net.load_state_dict(best_ratio_state_dict)
-            net.eval()
 
             with torch.no_grad():
                 ap_retrained.append(calculate_ap(net, loader_test, DEVICE, len(loader_test)))
@@ -293,6 +329,7 @@ def main():
 
         test_loss = loss_retrained[-1]
 
+        # calculate loss efficiency score
         if target_ratio == 0.0:
             baseline_fps = fps_list[-1]
             current_score = test_loss
@@ -309,40 +346,8 @@ def main():
             best_score = current_score
             best_state_dict = copy.deepcopy(best_ratio_state_dict)
 
-    # Export best model in onnx format
-    new_channels = [
-        best_state_dict['conv1.weight'].shape[0],
-        best_state_dict['conv2.weight'].shape[0],
-        best_state_dict['conv3.weight'].shape[0],
-        best_state_dict['conv4.weight'].shape[0],
-        best_state_dict['conv5.weight'].shape[0],
-        best_state_dict['conv6.weight'].shape[0],
-        best_state_dict['conv7.weight'].shape[0],
-        best_state_dict['conv8.weight'].shape[0]
-    ]
 
-    best_net = TinyYoloV2(num_classes=1, channels=new_channels)
-    best_net.load_state_dict(best_state_dict)
-    best_net.to(DEVICE)
-    best_net.eval()
-
-    export_input, _ = next(iter(loader_test))
-    export_input = export_input.to(DEVICE)
-
-    torch.onnx.export(
-        best_net,
-        export_input,
-        "models/pruned_yolo.onnx",
-        export_params=True,
-        opset_version=11,
-        input_names=['input_image'],
-        output_names=['yolo_output'],
-
-        # dynamic axes so the model can be used with different batch sizes
-        dynamic_axes={'input_image': {0: 'batch_size'}, 'yolo_output': {0: 'batch_size'}}
-    )
-
-    print("Exported the best model to 'models/best_pruned_yolo.onnx'!")
+    export_model(best_state_dict, loader_test, "models/pruned_yolo.onnx", DEVICE)
     
     # Plot the graphs
     import matplotlib.pyplot as plt
@@ -397,7 +402,7 @@ def main():
     plt.close()
 
 
-    torch.save(best_net.state_dict(), 'state_dicts/yolov2_pruned.pt')
+    torch.save(best_state_dict, 'state_dicts/yolov2_pruned.pt')
 
 
 main()
