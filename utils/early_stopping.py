@@ -14,19 +14,13 @@ class EarlyStopping:
         self.best_loss = np.inf
         self.early_stop = False
 
-    def __call__(self, val_loss, model, save_path):
+    def __call__(self, val_loss):
         # If this is the first epoch or the loss improved by at least min_delta
         if val_loss < self.best_loss - self.min_delta:
             self.best_loss = val_loss
             self.counter = 0
-            self.save_checkpoint(val_loss, model, save_path)
         else:
             self.counter += 1
             print(f"    -> EarlyStopping counter: {self.counter} out of {self.patience}")
             if self.counter >= self.patience:
                 self.early_stop = True
-
-    def save_checkpoint(self, val_loss, model, save_path):
-        """Saves model when validation loss decreases."""
-        print(f"    -> Validation loss decreased. Saving model to {save_path}...")
-        torch.save(model.state_dict(), save_path)
