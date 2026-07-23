@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -35,7 +35,7 @@ class GaussianBlurTransform(AbstractTransformation):
         sigma = params[self._sigma] * 1.9 + 0.1
         return {self._sigma: sigma}
 
-    def apply_transform(self, img: Tensor, params: Dict[str, Tensor]) -> Tensor:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
         domain_params = self.transform2domain(params)
         sigma = domain_params[self._sigma]
 
@@ -65,7 +65,7 @@ class GaussianBlurTransform(AbstractTransformation):
         # Apply convolution where groups=B*C allows different kernels per image
         blurred = F.conv2d(img_padded, kernel_2d, groups=B * C)
 
-        return blurred.reshape(B, C, H, W)
+        return blurred.reshape(B, C, H, W), targets
 
     def get_identity_params(self) -> List[float]:
         return [0.9 / 1.9]

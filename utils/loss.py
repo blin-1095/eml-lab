@@ -73,7 +73,9 @@ class YoloLoss(torch.nn.modules.loss._Loss):
         self.lambda_cls = float(lambda_cls)
 
         self.mse = torch.nn.MSELoss(reduction='sum')
-        self.cel = torch.nn.CrossEntropyLoss(reduction='sum')
+
+        # Ignore class label -1, which we use to mark invalid classes
+        self.cel = torch.nn.CrossEntropyLoss(reduction='sum', ignore_index=-1)
 
     def forward(self, x, y):
 

@@ -1,5 +1,5 @@
 import math
-from typing import List
+from typing import List, Optional, Tuple
 
 #from statsmodels.tsa.arima import params
 from typing_extensions import Dict
@@ -11,6 +11,7 @@ from torch import Tensor
 from torch.nn import functional as F
 
 from transformation.abstract_transformation import AbstractTransformation
+from utils.bbox_utils import cxcywh_to_corners, corners_to_cxcywh, filter_dead_boxes
 
 
 class RotationTransform(AbstractTransformation):
@@ -23,7 +24,8 @@ class RotationTransform(AbstractTransformation):
         super().__init__()
         self._angle = 'angle'
         self._min_rotation = min_rotation
-        self.max_angle = 180
+        # Enforce a maximum rotation of 10 degrees to avoid inflating bounding boxes
+        self.max_angle = 10
 
     def transform2domain(self, params: Dict[str, Tensor]) -> Dict[str, Tensor]:
         # Raw 0.5 -> 0.0 degrees (Identity)
@@ -45,11 +47,13 @@ class RotationTransform(AbstractTransformation):
         rotation = params
         return {self._angle: rotation}
 
-    def apply_transform(self, img: Tensor, params: Dict) -> Tensor:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
         """
         Applies the rotation transformation to the batched images via grid sampling.
         :param img: 4D Tensor of shape [B, C, H, W]
         :param params: Dictionary containing batched parameter Tensors
+        :param targets: Tensor containing the bounding boxes for the given images.
+            Shape: [CenterX, CenterY, W, H, Confidence, Class Label]
         """
         batch_size = img.shape[0]
 
@@ -73,7 +77,32 @@ class RotationTransform(AbstractTransformation):
         grid = F.affine_grid(affine_matrices, dimensions, align_corners=False)
         rotated_img = F.grid_sample(img, grid, align_corners=False, padding_mode=self.padding_mode)
 
-        return rotated_img
+        # Rotate the targets
+        rotated_targets = None
+        if targets is not None:
+            # 1. Unpack
+            x_corners, y_corners, valid_mask = cxcywh_to_corners(targets)
+
+            # 2. Shift origin to center of the image for rotation
+            x_corners -= 0.5
+            y_corners -= 0.5
+
+            # 3. Transform
+            cos_fwd = torch.cos(angles_rad).view(batch_size, 1, 1)
+            sin_fwd = torch.sin(angles_rad).view(batch_size, 1, 1)
+
+            rot_x = x_corners * cos_fwd - y_corners * sin_fwd
+            rot_y = x_corners * sin_fwd + y_corners * cos_fwd
+
+            # 4. Shift origin back to top-left
+            rot_x += 0.5
+            rot_y += 0.5
+
+            # 5. Repack
+            rotated_targets = corners_to_cxcywh(targets, rot_x, rot_y, valid_mask)
+            rotated_targets = filter_dead_boxes(rotated_targets, valid_mask)
+
+        return rotated_img, rotated_targets
 
     def get_identity_params(self) -> List[float]:
         return [0.5]

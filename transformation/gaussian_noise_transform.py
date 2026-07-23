@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -28,15 +28,15 @@ class GaussianNoiseTransform(AbstractTransformation):
 
     def transform2domain(self, params: Dict[str, Tensor]) -> Dict[str, Tensor]:
         # Limit max std deviation to a reasonable value for normalized image [0, 1]
-        return {self._noise_std: params[self._noise_std] * 0.5}
+        return {self._noise_std: params[self._noise_std] * 0.1}
 
-    def apply_transform(self, img: Tensor, params: Dict[str, Tensor]) -> Tensor:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
         std = self.transform2domain(params)[self._noise_std].view(-1, 1, 1, 1)
         noise = torch.randn_like(img) * std
 
         # Add noise and clamp back to standard image boundaries
         out = img + noise
-        return torch.clamp(out, 0.0, 1.0)
+        return torch.clamp(out, 0.0, 1.0), targets
 
     def get_identity_params(self) -> List[float]:
         return [0.0]

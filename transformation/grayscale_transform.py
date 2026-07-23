@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -31,7 +31,7 @@ class GrayscaleTransform(AbstractTransformation):
         prob = torch.abs((params[self._drop_prob] - 0.5) * 2.0)
         return {self._drop_prob: prob}
 
-    def apply_transform(self, img: Tensor, params: Dict[str, Tensor]) -> Tensor:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
         B, C, H, W = img.shape
         transformed = self.transform2domain(params)
         p = transformed[self._drop_prob].view(B, 1, 1, 1)
@@ -40,9 +40,9 @@ class GrayscaleTransform(AbstractTransformation):
             # Standard luminance preserving weights
             gray = (img[:, 0:1] * 0.2989 + img[:, 1:2] * 0.5870 + img[:, 2:3] * 0.1140)
             gray = gray.expand(-1, 3, -1, -1)
-            return (1.0 - p) * img + p * gray
+            return ((1.0 - p) * img + p * gray), targets
 
-        return img
+        return img, targets
 
     def get_identity_params(self) -> List[float]:
         return [0.5]
