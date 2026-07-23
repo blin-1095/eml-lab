@@ -27,7 +27,7 @@ class SobelFilterTransform(AbstractTransformation):
         """
         return {self._intensity: params}
 
-    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Tensor) -> Tuple[Tensor, Tensor]:
         intensity = params[self._intensity].view(-1, 1, 1, 1)
         B, C, H, W = img.shape
 

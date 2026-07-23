@@ -26,16 +26,15 @@ class HorizontalFlipTransform(AbstractTransformation):
     def transform2domain(self, params: Dict) -> Dict:
         return {}
 
-    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Tensor) -> Tuple[Tensor, Tensor]:
         transformed = self.transform2domain(params)
 
         flipped_images = torch.flip(img, dims=[3])
 
         # Flip the targets
         flipped_targets=None
-        if targets is not None:
-            flipped_targets = targets.clone()
-            flipped_targets[..., 0] = 1.0 - flipped_targets[..., 0]
+        flipped_targets = targets.clone()
+        flipped_targets[..., 0] = 1.0 - flipped_targets[..., 0]
 
         return flipped_images, flipped_targets
 

@@ -31,7 +31,7 @@ class GrayscaleTransform(AbstractTransformation):
         prob = torch.abs((params[self._drop_prob] - 0.5) * 2.0)
         return {self._drop_prob: prob}
 
-    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Tensor) -> Tuple[Tensor, Tensor]:
         B, C, H, W = img.shape
         transformed = self.transform2domain(params)
         p = transformed[self._drop_prob].view(B, 1, 1, 1)

@@ -35,7 +35,7 @@ class GaussianBlurTransform(AbstractTransformation):
         sigma = params[self._sigma] * 1.9 + 0.1
         return {self._sigma: sigma}
 
-    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Tensor) -> Tuple[Tensor, Tensor]:
         domain_params = self.transform2domain(params)
         sigma = domain_params[self._sigma]
 

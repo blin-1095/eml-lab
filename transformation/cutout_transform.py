@@ -41,7 +41,7 @@ class CutoutTransform(AbstractTransformation):
             self._size: torch.abs((params[self._size] - 0.5) * 0.8)
         }
 
-    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Tensor) -> Tuple[Tensor, Tensor]:
         domain_params = self.transform2domain(params)
         B, C, H, W = img.shape
 
@@ -68,33 +68,32 @@ class CutoutTransform(AbstractTransformation):
         cropped_img = img * (~box_mask).float()
 
         # Handle edge case where object of interest might be 100% cropped
-        if targets is not None:
-            targets = targets.clone()
-            x_corners, y_corners, valid_mask = cxcywh_to_corners(targets)
-            
-            # Get min/max of the bounding box
-            obj_xmin, _ = torch.min(x_corners, dim=-1)
-            obj_xmax, _ = torch.max(x_corners, dim=-1)
-            obj_ymin, _ = torch.min(y_corners, dim=-1)
-            obj_ymax, _ = torch.max(y_corners, dim=-1)
+        targets = targets.clone()
+        x_corners, y_corners, valid_mask = cxcywh_to_corners(targets)
+        
+        # Get min/max of the bounding box
+        obj_xmin, _ = torch.min(x_corners, dim=-1)
+        obj_xmax, _ = torch.max(x_corners, dim=-1)
+        obj_ymin, _ = torch.min(y_corners, dim=-1)
+        obj_ymax, _ = torch.max(y_corners, dim=-1)
 
-            # Convert Cutout [-1, 1] bounds to [0, 1] bounds to match YOLO targets
-            # .view(B, 1) allows it to broadcast against the N targets
-            cut_xmin = ((cx - size + 1.0) / 2.0).view(B, 1)
-            cut_xmax = ((cx + size + 1.0) / 2.0).view(B, 1)
-            cut_ymin = ((cy - size + 1.0) / 2.0).view(B, 1)
-            cut_ymax = ((cy + size + 1.0) / 2.0).view(B, 1)
+        # Convert Cutout [-1, 1] bounds to [0, 1] bounds to match YOLO targets
+        # .view(B, 1) allows it to broadcast against the N targets
+        cut_xmin = ((cx - size + 1.0) / 2.0).view(B, 1)
+        cut_xmax = ((cx + size + 1.0) / 2.0).view(B, 1)
+        cut_ymin = ((cy - size + 1.0) / 2.0).view(B, 1)
+        cut_ymax = ((cy + size + 1.0) / 2.0).view(B, 1)
 
-            # Check if the object is 100% inside the cutout square
-            is_swallowed = (obj_xmin >= cut_xmin) & (obj_xmax <= cut_xmax) & \
-                           (obj_ymin >= cut_ymin) & (obj_ymax <= cut_ymax)
-            
-            # Kill the box only if it was valid AND it got swallowed
-            dead_mask = valid_mask & is_swallowed
-            
-            # Set everything, including confidence, to 0 and set class to invalid object
-            targets[dead_mask] = 0.0
-            targets[..., 5][dead_mask] = -1.0
+        # Check if the object is 100% inside the cutout square
+        is_swallowed = (obj_xmin >= cut_xmin) & (obj_xmax <= cut_xmax) & \
+                        (obj_ymin >= cut_ymin) & (obj_ymax <= cut_ymax)
+        
+        # Kill the box only if it was valid AND it got swallowed
+        dead_mask = valid_mask & is_swallowed
+        
+        # Set everything, including confidence, to 0 and set class to invalid object
+        targets[dead_mask] = 0.0
+        targets[..., 5][dead_mask] = -1.0
 
         return cropped_img, targets
 

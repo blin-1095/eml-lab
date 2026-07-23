@@ -30,7 +30,7 @@ class GaussianNoiseTransform(AbstractTransformation):
         # Limit max std deviation to a reasonable value for normalized image [0, 1]
         return {self._noise_std: params[self._noise_std] * 0.1}
 
-    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Tensor) -> Tuple[Tensor, Tensor]:
         std = self.transform2domain(params)[self._noise_std].view(-1, 1, 1, 1)
         noise = torch.randn_like(img) * std
 

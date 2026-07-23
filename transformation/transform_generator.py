@@ -17,7 +17,7 @@ class TransformGenerator():
     def get_transformations(self) -> List[AbstractTransformation]:
         return self._transformations
 
-    def transform(self, params: Tensor, images: Tensor, targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
+    def transform(self, params: Tensor, images: Tensor, targets: Tensor) -> Tuple[Tensor, Tensor]:
         """
         Apply transformation to images with given params.
 
@@ -27,8 +27,7 @@ class TransformGenerator():
         """
 
         current_images = images.clone()
-        if targets is not None:
-            targets = targets.clone()
+        targets = targets.clone()
 
         B = current_images.shape[0]
         raw_params = params
@@ -57,7 +56,7 @@ class TransformGenerator():
 
             selected_params = transform_params[apply_mask]
             selected_images = current_images[apply_mask]
-            selected_targets = targets[apply_mask] if targets is not None else None
+            selected_targets = targets[apply_mask]
 
             # configure and apply to selected sub-batch
             # If the transform requires exactly 1 parameter, squeeze it to shape [B]
@@ -73,8 +72,7 @@ class TransformGenerator():
 
             # inject transformed images and targets back into main batch
             current_images[apply_mask] = transformed_images
-            if targets is not None and transformed_targets is not None:
-                targets[apply_mask] = transformed_targets
+            targets[apply_mask] = transformed_targets
 
 
         assert current_images is not None
