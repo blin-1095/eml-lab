@@ -55,7 +55,7 @@ class CropTransform(AbstractTransformation):
 
         return {'cx': cx, 'cy': cy, 'sx': sx, 'sy': sy}
 
-    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Tensor) -> Tuple[Tensor, Tensor]:
         domain_params = self.transform2domain(params)
         B = img.shape[0]
 
@@ -70,29 +70,28 @@ class CropTransform(AbstractTransformation):
         cropped_img = F.grid_sample(img, grid, align_corners=False, padding_mode=self.padding_mode)
 
         cropped_targets = None
-        if targets is not None:
-            # 1. Unpack the original corners
-            x_corners, y_corners, valid_mask = cxcywh_to_corners(targets)
+        # 1. Unpack the original corners
+        x_corners, y_corners, valid_mask = cxcywh_to_corners(targets)
 
-            # Reshape parameters for broadcasting: [B] -> [B, 1, 1]
-            sx = domain_params['sx'].view(B, 1, 1)
-            sy = domain_params['sy'].view(B, 1, 1)
-            cx = domain_params['cx'].view(B, 1, 1)
-            cy = domain_params['cy'].view(B, 1, 1)
+        # Reshape parameters for broadcasting: [B] -> [B, 1, 1]
+        sx = domain_params['sx'].view(B, 1, 1)
+        sy = domain_params['sy'].view(B, 1, 1)
+        cx = domain_params['cx'].view(B, 1, 1)
+        cy = domain_params['cy'].view(B, 1, 1)
 
-            # 2. Calculate the top-left offset in normalized [0, 1] coordinates
-            x_offset = 0.5 * (1.0 - sx + cx)
-            y_offset = 0.5 * (1.0 - sy + cy)
+        # 2. Calculate the top-left offset in normalized [0, 1] coordinates
+        x_offset = 0.5 * (1.0 - sx + cx)
+        y_offset = 0.5 * (1.0 - sy + cy)
 
-            # Shift the corners by the offset, then scale them up by the zoom factor
-            x_corners = (x_corners - x_offset) / sx
-            y_corners = (y_corners - y_offset) / sy
+        # Shift the corners by the offset, then scale them up by the zoom factor
+        x_corners = (x_corners - x_offset) / sx
+        y_corners = (y_corners - y_offset) / sy
 
-            # 3. Clamp any boxes that go out of bounds
-            cropped_targets = corners_to_cxcywh(targets, x_corners, y_corners, valid_mask)
+        # 3. Clamp any boxes that go out of bounds
+        cropped_targets = corners_to_cxcywh(targets, x_corners, y_corners, valid_mask)
 
-            # Filter dead boxes that are not inside image bounds anymore
-            targets = filter_dead_boxes(cropped_targets, valid_mask)
+        # Filter dead boxes that are not inside image bounds anymore
+        targets = filter_dead_boxes(cropped_targets, valid_mask)
 
         return cropped_img, targets
 

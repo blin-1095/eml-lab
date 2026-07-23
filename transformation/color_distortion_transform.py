@@ -35,7 +35,7 @@ class ColorDistortionTransform(AbstractTransformation):
             'hue': params['hue'] - 0.5                       # Maps exactly to [-0.5, 0.5]
         }
 
-    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Tensor) -> Tuple[Tensor, Tensor]:
         domain_params = self.transform2domain(params)
         B, C, H, W = img.shape
 

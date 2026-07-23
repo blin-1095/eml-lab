@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
 
-from torch import Tensor, nn
+from torch import Tensor
 from typing_extensions import Tuple, Dict, List, Optional
 
 
-class AbstractTransformation(ABC, nn.Module):
+class AbstractTransformation(ABC):
     """
     Represents an abstract transformation that can be applied to images. This is an interface for transformations that
     can be applied to images, such as rotations, flips, color adjustments, etc.
@@ -47,7 +47,7 @@ class AbstractTransformation(ABC, nn.Module):
         pass
 
     @abstractmethod
-    def apply_transform(self, img: Tensor, params: Dict, targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
+    def apply_transform(self, img: Tensor, params: Dict, targets: Tensor) -> Tuple[Tensor, Tensor]:
         """
         Applies the transformation to the given image.
         :param img: The images to be transformed

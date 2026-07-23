@@ -47,7 +47,7 @@ class RotationTransform(AbstractTransformation):
         rotation = params
         return {self._angle: rotation}
 
-    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Tensor) -> Tuple[Tensor, Tensor]:
         """
         Applies the rotation transformation to the batched images via grid sampling.
         :param img: 4D Tensor of shape [B, C, H, W]
@@ -79,28 +79,27 @@ class RotationTransform(AbstractTransformation):
 
         # Rotate the targets
         rotated_targets = None
-        if targets is not None:
-            # 1. Unpack
-            x_corners, y_corners, valid_mask = cxcywh_to_corners(targets)
+        # 1. Unpack
+        x_corners, y_corners, valid_mask = cxcywh_to_corners(targets)
 
-            # 2. Shift origin to center of the image for rotation
-            x_corners -= 0.5
-            y_corners -= 0.5
+        # 2. Shift origin to center of the image for rotation
+        x_corners -= 0.5
+        y_corners -= 0.5
 
-            # 3. Transform
-            cos_fwd = torch.cos(angles_rad).view(batch_size, 1, 1)
-            sin_fwd = torch.sin(angles_rad).view(batch_size, 1, 1)
+        # 3. Transform
+        cos_fwd = torch.cos(angles_rad).view(batch_size, 1, 1)
+        sin_fwd = torch.sin(angles_rad).view(batch_size, 1, 1)
 
-            rot_x = x_corners * cos_fwd - y_corners * sin_fwd
-            rot_y = x_corners * sin_fwd + y_corners * cos_fwd
+        rot_x = x_corners * cos_fwd - y_corners * sin_fwd
+        rot_y = x_corners * sin_fwd + y_corners * cos_fwd
 
-            # 4. Shift origin back to top-left
-            rot_x += 0.5
-            rot_y += 0.5
+        # 4. Shift origin back to top-left
+        rot_x += 0.5
+        rot_y += 0.5
 
-            # 5. Repack
-            rotated_targets = corners_to_cxcywh(targets, rot_x, rot_y, valid_mask)
-            rotated_targets = filter_dead_boxes(rotated_targets, valid_mask)
+        # 5. Repack
+        rotated_targets = corners_to_cxcywh(targets, rot_x, rot_y, valid_mask)
+        rotated_targets = filter_dead_boxes(rotated_targets, valid_mask)
 
         return rotated_img, rotated_targets
 
