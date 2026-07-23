@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -16,28 +16,28 @@ class HorizontalFlipTransform(AbstractTransformation):
 
     def __init__(self):
         super().__init__()
-        self._flip_prob = "flip_prob"
 
     def get_required_params_amount(self) -> int:
-        return 1
+        return 0
 
     def configure_transformation(self, params: Tensor) -> Dict[str, Tensor]:
-        """
-        :param params: Tensor of shape [B,]
-        """
-        return {self._flip_prob: params}
+        return {}
 
     def transform2domain(self, params: Dict) -> Dict:
-        prob = torch.abs((params[self._flip_prob] - 0.5) * 2.0)
-        return {self._flip_prob: prob}
+        return {}
 
-    def apply_transform(self, img: Tensor, params: Dict[str, Tensor]) -> Tensor:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
         transformed = self.transform2domain(params)
-        p = transformed[self._flip_prob].view(-1, 1, 1, 1)
-        flipped = torch.flip(img, dims=[3])
 
-        # Soft blend: if p is 1, it's fully flipped. If p is 0, it's original.
-        return (1.0 - p) * img + p * flipped
+        flipped_images = torch.flip(img, dims=[3])
+
+        # Flip the targets
+        flipped_targets=None
+        if targets is not None:
+            flipped_targets = targets.clone()
+            flipped_targets[..., 0] = 1.0 - flipped_targets[..., 0]
+
+        return flipped_images, flipped_targets
 
     def get_identity_params(self) -> List[float]:
         return [0.5]

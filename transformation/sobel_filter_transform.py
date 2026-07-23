@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -27,7 +27,7 @@ class SobelFilterTransform(AbstractTransformation):
         """
         return {self._intensity: params}
 
-    def apply_transform(self, img: Tensor, params: Dict[str, Tensor]) -> Tensor:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
         intensity = params[self._intensity].view(-1, 1, 1, 1)
         B, C, H, W = img.shape
 
@@ -60,7 +60,7 @@ class SobelFilterTransform(AbstractTransformation):
         if C == 3:
             magnitude = magnitude.expand(-1, 3, -1, -1)
 
-        return (1.0 - intensity) * img + intensity * magnitude
+        return ((1.0 - intensity) * img + intensity * magnitude), targets
 
     def get_identity_params(self) -> List[float]:
         return [0.0]

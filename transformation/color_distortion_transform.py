@@ -1,5 +1,4 @@
-import math
-from typing import List
+from typing import List, Optional, Tuple
 import torch
 from torch import Tensor
 from typing_extensions import Dict
@@ -36,7 +35,7 @@ class ColorDistortionTransform(AbstractTransformation):
             'hue': params['hue'] - 0.5                       # Maps exactly to [-0.5, 0.5]
         }
 
-    def apply_transform(self, img: Tensor, params: Dict[str, Tensor]) -> Tensor:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
         domain_params = self.transform2domain(params)
         B, C, H, W = img.shape
 
@@ -82,7 +81,7 @@ class ColorDistortionTransform(AbstractTransformation):
             out_rgb = torch.matmul(yiq_new, yiq2rgb.T)
             out = out_rgb.view(B, H, W, 3).permute(0, 3, 1, 2)
 
-        return out
+        return out, targets
 
     def get_identity_params(self) -> List[float]:
         # Raw 0.5 maps perfectly to physical 1.0 (or 0.0 for hue)

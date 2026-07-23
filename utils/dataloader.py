@@ -39,12 +39,17 @@ def num_to_class(number):
         if idx == number: return string
     return 'none'
 
-class VOCTransform:
+class VOCNormalize:
+    """
+    Normalize images and bounding boxes.
+    The actual transformation is later done on the GPU using TransformGenerator class.
+        :param image: 4D Tensor of shape [B, C, H, W]
+        :param target: Tensor containing the bounding boxes for the given images.
+            Shape: [CenterX, CenterY, W, H, Confidence, Class Label]
+    """
     def __init__(self, train=True, only_person=False):
         self.only_person = only_person
         self.train = train
-        if train:
-            self.augmentation = tf.RandomApply([tf.ColorJitter(0.2, 0.2, 0.2, 0.2)])
 
     def __call__(self,image, target):
         num_bboxes = 10
@@ -70,12 +75,12 @@ class VOCTransform:
             y0 = int(item['bndbox']['ymin'])*scale + diff_height//2
             h = (int(item['bndbox']['ymax']) - int(item['bndbox']['ymin'])) * scale
 
-            target_vector = [(x0 + w/2) / width,
-                            (y0 + h/2) / height,
-                            w/width,
-                            h/height,
-                            1.0,
-                            class_to_num(item['name'])]
+            target_vector = [(x0 + w/2) / width,                # Center X (cx)
+                            (y0 + h/2) / height,                # Center Y (cy)
+                            w/width,                            # Width (w)
+                            h/height,                           # Height (h)
+                            1.0,                                # Objectness / Confidence
+                            class_to_num(item['name'])]         # Class Label
 
             if self.only_person:
                 if target_vector[5] == class_to_num("person"):
@@ -85,7 +90,10 @@ class VOCTransform:
                 target_vectors.append(target_vector)
 
         target_vectors = list(sorted(target_vectors, key=lambda x: x[2]*x[3]))
-        target_vectors = torch.tensor(target_vectors)
+
+        # Set target vectors if they are not empty, else fill with zeroes
+        target_vectors = torch.tensor(target_vectors) if len(target_vectors) != 0 else torch.zeros((0, 6))
+
         if target_vectors.shape[0] < num_bboxes:
             zeros = torch.zeros((num_bboxes - target_vectors.shape[0], 6))
             zeros[:, -1] = -1
@@ -93,10 +101,7 @@ class VOCTransform:
         elif target_vectors.shape[0] > num_bboxes:
             target_vectors = target_vectors[:num_bboxes]
 
-        if self.train:
-            return self.augmentation(tf.functional.to_tensor(image)), target_vectors,
-        else:
-            return tf.functional.to_tensor(image), target_vectors
+        return tf.functional.to_tensor(image), target_vectors
 
 
 def VOCDataLoader(split="train", batch_size=32, shuffle=None):
@@ -109,7 +114,7 @@ def VOCDataLoader(split="train", batch_size=32, shuffle=None):
     if not os.path.exists("data/VOCdevkit/VOC2012/JPEGImages/2007_000027.jpg"):
         dataset = torchvision.datasets.VOCDetection("data/", year="2012", image_set=image_set, download=True)
 
-    dataset = torchvision.datasets.VOCDetection("data/", year="2012", image_set=image_set, download=False, transforms=VOCTransform(train=(split == "train")))
+    dataset = torchvision.datasets.VOCDetection("data/", year="2012", image_set=image_set, download=False, transforms=VOCNormalize(train=(split == "train")))
 
     # split validation set into validation and test set
     if split in ["val", "test"]:
@@ -135,7 +140,7 @@ def VOCDataLoaderPerson(split="train", batch_size=32, shuffle=None):
         dataset = torchvision.datasets.VOCDetection("data/", year="2012", image_set=image_set, download=True)
         
     dataset = torchvision.datasets.VOCDetection("data/", year="2012", image_set=image_set, download=False,
-                                transforms=VOCTransform(train=(split == "train"), only_person=True))
+                                transforms=VOCNormalize(train=(split == "train"), only_person=True))
     with open("data/person_indices.json", "r") as fd: indices = list(json.load(fd)[image_set])
     dataset = torch.utils.data.Subset(dataset, indices)
 

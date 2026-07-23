@@ -1,10 +1,11 @@
-from typing import List
+from typing import List, Optional, Tuple
 import torch
 from torch import Tensor
 from typing_extensions import Dict
 from torch.nn import functional as F
 
 from transformation.abstract_transformation import AbstractTransformation
+from utils.bbox_utils import cxcywh_to_corners, corners_to_cxcywh, filter_dead_boxes
 
 class CropTransform(AbstractTransformation):
     def __init__(self, start_with_identity=True):
@@ -54,7 +55,7 @@ class CropTransform(AbstractTransformation):
 
         return {'cx': cx, 'cy': cy, 'sx': sx, 'sy': sy}
 
-    def apply_transform(self, img: Tensor, params: Dict[str, Tensor]) -> Tensor:
+    def apply_transform(self, img: Tensor, params: Dict[str, Tensor], targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
         domain_params = self.transform2domain(params)
         B = img.shape[0]
 
@@ -68,7 +69,32 @@ class CropTransform(AbstractTransformation):
         grid = F.affine_grid(affine_matrices, dimensions, align_corners=False)
         cropped_img = F.grid_sample(img, grid, align_corners=False, padding_mode=self.padding_mode)
 
-        return cropped_img
+        cropped_targets = None
+        if targets is not None:
+            # 1. Unpack the original corners
+            x_corners, y_corners, valid_mask = cxcywh_to_corners(targets)
+
+            # Reshape parameters for broadcasting: [B] -> [B, 1, 1]
+            sx = domain_params['sx'].view(B, 1, 1)
+            sy = domain_params['sy'].view(B, 1, 1)
+            cx = domain_params['cx'].view(B, 1, 1)
+            cy = domain_params['cy'].view(B, 1, 1)
+
+            # 2. Calculate the top-left offset in normalized [0, 1] coordinates
+            x_offset = 0.5 * (1.0 - sx + cx)
+            y_offset = 0.5 * (1.0 - sy + cy)
+
+            # Shift the corners by the offset, then scale them up by the zoom factor
+            x_corners = (x_corners - x_offset) / sx
+            y_corners = (y_corners - y_offset) / sy
+
+            # 3. Clamp any boxes that go out of bounds
+            cropped_targets = corners_to_cxcywh(targets, x_corners, y_corners, valid_mask)
+
+            # Filter dead boxes that are not inside image bounds anymore
+            targets = filter_dead_boxes(cropped_targets, valid_mask)
+
+        return cropped_img, targets
 
     def get_identity_params(self) -> List[float]:
         # Perfectly centered logit biases for all 4 parameters

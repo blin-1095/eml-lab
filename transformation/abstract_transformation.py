@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 from torch import Tensor, nn
-from typing_extensions import Tuple, Dict, List
+from typing_extensions import Tuple, Dict, List, Optional
 
 
 class AbstractTransformation(ABC, nn.Module):
@@ -47,12 +47,13 @@ class AbstractTransformation(ABC, nn.Module):
         pass
 
     @abstractmethod
-    def apply_transform(self, img: Tensor, params: Dict) -> Tensor:
+    def apply_transform(self, img: Tensor, params: Dict, targets: Optional[Tensor] = None) -> Tuple[Tensor, Optional[Tensor]]:
         """
         Applies the transformation to the given image.
-        :param img: The image to be transformed
+        :param img: The images to be transformed
         :param params: The parameters required for the transformation, such as degree for rotation.
             The params dict is the output of self.configure_transformation()
+        :param targets: The bounding boxes of the images to be transformed
         """
         pass
 
