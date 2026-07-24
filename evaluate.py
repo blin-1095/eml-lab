@@ -11,7 +11,7 @@ from matplotlib.ticker import MaxNLocator
 plt.style.use('ggplot')
 
 DATA_DIR = "raw_data"
-PLOT_DIR = "plots"
+PLOT_DIR = "results/plots"
 os.makedirs(PLOT_DIR, exist_ok=True)
 
 def load_data():
