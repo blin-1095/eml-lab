@@ -32,14 +32,13 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 LEARNING_RATE = 1e-5 
 TRAIN_BATCH_SIZE = 180
 EVAL_BATCH_SIZE = 180  
-EPOCHS = 5
+EPOCHS = 100
 NUM_PRUNING_RATIOS = 5
 TRANSFORM_PROBABILITY = 0.15
 
 # Person-only pipeline hyperparameters
 PERSON_LEARNING_RATE = 0.001
-PERSON_EPOCHS = 20
-PERSON_BATCH_SIZE = 128
+PERSON_BATCH_SIZE = 192
 
 print(f"[*] Initializing master script on device: {DEVICE}")
 
@@ -201,7 +200,7 @@ if __name__ == "__main__":
         test_loader=test_loader_person,
         device=DEVICE,
         learning_rate=PERSON_LEARNING_RATE,
-        epochs=PERSON_EPOCHS,
+        epochs=EPOCHS,
         sd_path="state_dicts/voc_pretrained.pt"
     )
 
