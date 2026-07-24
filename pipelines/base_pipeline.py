@@ -8,17 +8,19 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import copy
 import os
-import json
 import time
 import matplotlib.pyplot as plt
 
-from utils.loss import YoloLoss
 from tinyyolov2 import TinyYoloV2
+from utils.loss import YoloLoss
 from utils.early_stopping import EarlyStopping
+from utils.metrics import precision_recall_levels, ap
+from utils.yolo import filter_boxes, nms
+from utils.logger import ExperimentLogger
 
 # make the linter shut up
 from torch.optim.optimizer import Optimizer
-from typing_extensions import Tuple, Dict, List, Optional
+from typing_extensions import Tuple, Dict, Optional, Any
 
 
 class BasePipeline(ABC):
@@ -77,12 +79,8 @@ class BasePipeline(ABC):
             images = images.to(self.device)
             targets = targets.to(self.device)
 
-            # Strict call: Subclass must explicitly handle this
             images, targets = self._preprocess_batch(images, targets)
-
             predictions = self.model(images, yolo=False)
-            
-            # Strict call: Subclass must explicitly compute this
             loss, _ = self.criterion_train(predictions, targets)
 
             self.optimizer.zero_grad()
@@ -117,11 +115,13 @@ class BasePipeline(ABC):
         return running_loss / len(loader)
 
 
-    def run(self) -> Tuple[List[float], List[float], float]:
+    def run(self) -> dict[str, Any]:
         """Encapsulates the entire training process to ensure a fresh start each time."""
         print(f"\n{'='*50}")
         print(f"STARTING PIPELINE: {self.pipeline_name}")
         print(f"{'='*50}")
+
+        logger = ExperimentLogger(self.pipeline_name)
 
         # Initialize network components
         self.model = self._setup_model()
@@ -133,8 +133,6 @@ class BasePipeline(ABC):
 
         early_stopper = EarlyStopping(patience=self.patience, min_delta=0.01)
         
-        train_losses = []
-        val_losses = []
         best_state_dict: dict = {}
 
         for epoch in range(self.epochs):
@@ -142,15 +140,14 @@ class BasePipeline(ABC):
             
             train_loss = self._train_epoch()
             print(f"Train Loss: {train_loss:.4f}")
-            train_losses.append(train_loss)
             
             val_loss = self._validate_epoch(self.val_loader, split_name="Validation")
             print(f"Val Loss: {val_loss:.4f}")
 
-            if val_loss < min(val_losses, default=float('inf')):
+            if val_loss < min(logger.val_losses, default=float('inf')):
                 best_state_dict = copy.deepcopy(self.model.state_dict())
-            val_losses.append(val_loss)
-            
+
+            logger.log_epoch(train_loss, val_loss) 
             early_stopper(val_loss)
             
             if early_stopper.early_stop:
@@ -164,33 +161,68 @@ class BasePipeline(ABC):
         test_loss = self._validate_epoch(self.test_loader, split_name="Testing")
         print(f"Final Test Loss: {test_loss:.4f}")
 
+        print("\nCalculating Average Precision (AP) and Speed Metrics...")
+        metrics_dict = self._evaluate_metrics(self.test_loader)
+        current_fps = self._benchmark_inference_speed()
+        total_params = sum(p.numel() for p in self.model.parameters())
+        current_pruning_ratio = getattr(self, 'pruning_ratio', 0.0)
+
+        print(f"Final AP: {metrics_dict['ap']:.4f} | FPS: {current_fps:.1f} | Params: {total_params}")
+
+        final_results = {
+            "train_losses": logger.train_losses,
+            "val_losses": logger.val_losses,
+            "test_loss": test_loss,
+            "ap": metrics_dict["ap"],
+            "fps": current_fps,
+            "inference_time_ms": 1000.0 / current_fps if current_fps > 0 else 0.0,
+            "total_parameters": total_params,
+            "test_precision_levels": metrics_dict["precision_levels"],
+            "test_recall_levels": metrics_dict["recall_levels"],
+            "pruning_ratio": current_pruning_ratio
+        }
+
+        logger.log_final_metrics(final_results)
+        logger.save_report()
+
         clean_name = self.pipeline_name.split()[0].lower()
         self._export_model(best_state_dict, dest_path=f"models/{clean_name}_best_model.onnx")
         self._export_state_dict(best_state_dict, dest_path=f"state_dicts/{clean_name}_best_sd.pt")
-        self._save_metrics(train_losses, val_losses, test_loss)
-        self._generate_plot(train_losses, val_losses)
 
-        return train_losses, val_losses, test_loss
-    
-    def _save_metrics(self, train_losses: list, val_losses: list, test_loss: float):
-        """Saves the raw numerical data to a JSON file for future comparative plotting."""
-        os.makedirs("raw_data", exist_ok=True)
+        self._generate_plot(logger.train_losses, logger.val_losses)
+
+        return final_results 
+
+    def _evaluate_metrics(self, loader) -> dict:
+        """Runs inference and calculates Precision, Recall, and AP."""
+        assert self.model is not None, "Model not initialized"
+        self.model.eval()
         
-        # Clean the name (e.g., "Augmented Training Pipeline" -> "augmented_training")
-        clean_name = self.pipeline_name.lower().replace(" ", "_")
-        filepath = f"raw_data/{clean_name}_metrics.json"
+        test_precision = []
+        test_recall = []
         
-        data = {
-            "pipeline_name": self.pipeline_name,
-            "train_losses": train_losses,
-            "val_losses": val_losses,
-            "test_loss": test_loss
+        loop = tqdm(loader, leave=True, desc="Evaluating AP")
+        with torch.no_grad():
+            for images, targets in loop:
+                images, targets = images.to(self.device), targets.to(self.device)
+                
+                outputs = self.model(images, yolo=True)
+                outputs = filter_boxes(outputs, 0.25)
+                outputs = nms(outputs, 0.5)
+                
+                # Handle batch sizes correctly
+                for i in range(images.size(0)):
+                    prec, rec = precision_recall_levels(targets[i], outputs[i])
+                    test_precision.append(prec)
+                    test_recall.append(rec)
+                
+        final_ap = ap(test_precision, test_recall)
+        
+        return {
+            "ap": float(final_ap),
+            "precision_levels": test_precision,
+            "recall_levels": test_recall
         }
-        
-        with open(filepath, "w") as f:
-            json.dump(data, f, indent=4)
-            
-        print(f"[*] Saved raw metrics to '{filepath}'")
     
     def _generate_plot(self, train_losses: list, val_losses: list):
         """Generates a standard standalone plot for this specific pipeline run for debugging purposes."""
@@ -286,7 +318,7 @@ class BasePipeline(ABC):
         
         print(f"Successfully exported state_dict to '{dest_path}'!")
 
-    def benchmark_inference_speed(self, num_batches: int = 50) -> float:
+    def _benchmark_inference_speed(self, num_batches: int = 50) -> float:
         """Runs a quick inference benchmark on the test set to calculate FPS."""
 
         assert self.model is not None, "Model not initialized"
