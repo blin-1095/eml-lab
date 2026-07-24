@@ -15,19 +15,22 @@ After that you can source the venv as usual and execute the scripts.
 
 # General notes
 
-## Efficiency score
+## Efficiency Score
 
-To select the best performing model after pruning, we have to take into account the Loss and the achieved performance gain.
-Loss alone is not enough as the metric, since the lowest Loss model will always be the unpruned one (or models that have been pruned less).
+To select the optimal model after pruning, we must evaluate both its object detection accuracy and its computational speedup. We use Average Precision (AP) rather than Validation/Test Loss as our primary accuracy metric.
 
-To get the best performing model per FPS, we use the following equation:
+### Why We Use AP Instead of Loss
+Loss is a continuous proxy metric that calculates exact mathematical error (like Cross-Entropy). While necessary for backpropagation, it does not perfectly reflect final object detection quality. When a network is pruned by removing parameters, its overall confidence scores often drop slightly. This drop causes the cross-entropy loss to spike, making the model appear heavily degraded. 
+
+However, as long as those slightly lower confidence scores remain above our NMS and filtering thresholds (e.g., a box dropping from 90% to 65% confidence against a 25% threshold), the final bounding boxes output by the model remain completely unchanged. Therefore, Average Precision (AP), which evaluates the final, thresholded predictions, provides a much more accurate representation of the true performance impact of pruning.
+
+To find the best performing model that balances accuracy retention and computational speed, we use the following equation:
 
 $$
-\text{Efficiency Score} = \frac{\text{Validation Loss}}{\left( \frac{\text{FPS}_{\text{current}}}{\text{FPS}_{\text{baseline}}} \right)}
+\text{Efficiency Score} = \text{AP}_{\text{current}} \times \left( \frac{\text{FPS}_{\text{current}}}{\text{FPS}_{\text{baseline}}} \right)
 $$
 
-This calculates an Efficiency Score which allows us to compare whether the rise in Loss is worth the speedup gain from pruning.
-A lower score is better.
+This calculates a speed-adjusted AP score, allowing us to mathematically quantify whether a slight drop in precision is worth the frame-rate gain. Because we are maximizing both accuracy and speed, **a higher score is better**.
 
 ## ONNX Quantization
 
@@ -45,7 +48,29 @@ Jetson DLA (Deep Learning Accelerator) Support: If your Jetson model targets the
 
 ## Transforms
 
-In this implementation, each transformation of an image has a set chance to be applied on the image. Because TinyYoloV2 is a very small network, applying all transformations at once will lead to underfitting, as the network will struggle to make sense of the heavily transformed data. By setting the percent chance to a lower value like 0.3, we ensure that the network gets to learn transformed images, without them becoming to alien and impossible to learn.
+In this implementation, each transformation of an image has a set chance to be applied on the image. Because TinyYoloV2 is a very small network, applying all transformations at once will lead to underfitting, as the network will struggle to make sense of the heavily transformed data.
+
+### Augmentation Probability Breakdown
+
+To strike the perfect balance between robust regularization and model capacity, each geometric and photometric transformation in this pipeline is applied independently with a **15% probability**. 
+
+When multiple augmentations are active (e.g., 9 distinct transforms), a high individual probability can stack unpredictably, generating heavily distorted, "unsolvable" images that stall training. By lowering the independent trigger chance to 15%, we successfully control the compound probability. 
+
+Given **9 active transformations**, the statistical distribution of augmentations per image across a training batch breaks down as follows (based on a binomial distribution):
+
+| Transforms Applied | Probability | Impact on Training Batch |
+| :---: | :---: | :--- |
+| **0** | **23.16%** | Image remains perfectly clean. Anchors the model to baseline reality. |
+| **1** | **36.79%** | Single distortion. Forces the model to learn specific invariances (e.g., just noise or just rotation). |
+| **2** | **25.97%** | Moderate stacking. Introduces harder edge cases without completely destroying object semantics. |
+| **3** | **10.69%** | Heavy stacking. Acts as a severe regularization test to strictly prevent overfitting. |
+| **4** | **2.83%** | Extreme distortion. Very chaotic images that force the model to look at partial features. |
+| **5** | **0.50%** | Near-total loss of semantics. Rare enough that it doesn't stall the optimizer. |
+| **6 to 9** | **< 0.1%** | Total chaos. Statistically insignificant occurrence. |
+
+**The Result:** Nearly **60%** of the images in any given batch will receive exactly 0 or 1 transformation, providing a healthy, solvable baseline for the optimizer. Another **26%** will receive exactly 2 transforms to push the model's geometric boundaries, while extreme edge cases (3 or more) are kept strictly below 15% to prevent the dataset from becoming unsolvable noise.
+
+
 
 ### Rotations
 
