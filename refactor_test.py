@@ -96,7 +96,7 @@ if __name__ == "__main__":
         sd_path="state_dicts/voc_pretrained.pt"
     )
     
-    baseline_train_losses, baseline_val_losses, baseline_test_loss = baseline_pipeline.run()
+    baseline_results = baseline_pipeline.run()
     
     # Clean up baseline from memory and VRAM
     del baseline_pipeline
@@ -122,7 +122,7 @@ if __name__ == "__main__":
         transform_generator=transform_generator
     )
     
-    train_losses, val_losses, test_loss = augmentation_pipeline.run()
+    augmentation_results = augmentation_pipeline.run()
     
     # Clean up augmentation pipeline from memory and VRAM
     del augmentation_pipeline
@@ -130,12 +130,12 @@ if __name__ == "__main__":
     torch.cuda.empty_cache()
 
     # -----------------------------------------------------
-    # Phase 3: Run Pruning Grid Search
+    # Phase 3: Run Pruning Pipeline
     # -----------------------------------------------------
     pruning_ratios = np.linspace(0, 0.8, NUM_PRUNING_RATIOS)
 
     baseline_fps = 1.0
-    best_score = float('inf')
+    best_score = float('-inf')  # Start at negative infinity to maximize AP score
     best_ratio = None
     results_log = {}
 
@@ -156,20 +156,28 @@ if __name__ == "__main__":
             pruning_ratio=ratio
         )
         
-        train_losses, val_losses, test_loss = pipeline.run()
-        current_fps = pipeline.benchmark_inference_speed() 
+        # 1. Run the pipeline and get the unified dictionary
+        results = pipeline.run()
         
+        # 2. Extract metrics directly from the dictionary
+        current_fps = results["fps"]
+        test_loss = results["test_loss"]
+        current_ap = results["ap"]
+        
+        # 3. Calculate Speed-Adjusted AP Score
         if ratio == 0.0:
             baseline_fps = current_fps
-            current_score = test_loss
+            current_score = current_ap  
         else:
-            speedup_factor = current_fps / baseline_fps
-            current_score = test_loss / speedup_factor
+            speedup_factor = current_fps / baseline_fps if baseline_fps > 0 else 1.0
+            current_score = current_ap * speedup_factor 
             
-        print(f"\n[*] Ratio {ratio:.2f} -> Test Loss: {test_loss:.4f} | FPS: {current_fps:.1f} | Score: {current_score:.4f}")
+        print(f"\n[*] Ratio {ratio:.2f} -> AP: {current_ap:.4f} | Loss: {test_loss:.4f} | FPS: {current_fps:.1f} | Score: {current_score:.4f}")
         
         results_log[ratio] = current_score
-        if current_score < best_score:
+        
+        # 4. Track the best pruning ratio (Maximize the score)
+        if current_score > best_score:
             best_score = current_score
             best_ratio = ratio
             
@@ -197,7 +205,7 @@ if __name__ == "__main__":
         sd_path="state_dicts/voc_pretrained.pt"
     )
 
-    person_train_losses, person_val_losses, person_test_loss = person_pipeline.run()
+    person_results = person_pipeline.run()
     
     # Clean up person-only pipeline from memory and VRAM
     del person_pipeline
