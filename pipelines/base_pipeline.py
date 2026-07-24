@@ -226,9 +226,9 @@ class BasePipeline(ABC):
     
     def _generate_plot(self, train_losses: list, val_losses: list):
         """Generates a standard standalone plot for this specific pipeline run for debugging purposes."""
-        os.makedirs("results", exist_ok=True)
+        os.makedirs("results/debug", exist_ok=True)
         clean_name = self.pipeline_name.lower().replace(" ", "_")
-        filepath = f"results/{clean_name}_loss_curve.png"
+        filepath = f"results/debug/{clean_name}_loss_curve.png"
 
         plt.figure(figsize=(10, 6))
         epochs = range(1, len(train_losses) + 1)
