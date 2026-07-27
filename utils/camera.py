@@ -79,16 +79,19 @@ class Camera(traitlets.HasTraits):
 
 
 class CameraDisplay:
-    def __init__(self, img_to_display_img_callback, lazy_camera_init: bool = False):
+    def __init__(self, img_to_display_img_callback, lazy_camera_init: bool = False, use_widget=True):
         self.img_to_display_img_callback = img_to_display_img_callback
         self.lazy_camera_init = lazy_camera_init
+        self.latest_frame = None
+        self.use_widget = use_widget
         if not self.lazy_camera_init:
             self.initialize_camera()
         else:
             self.camera = None
-        self.image_widget = ipywidgets.Image(format='jpeg')
-        self.image_widget.value = bgr8_to_jpeg(np.zeros((320, 320, 3), dtype=np.uint8))
-        display(self.image_widget)
+        if self.use_widget:
+            self.image_widget = ipywidgets.Image(format='jpeg')
+            self.image_widget.value = bgr8_to_jpeg(np.zeros((320, 320, 3), dtype=np.uint8))
+            display(self.image_widget)
         
         self._processing_frame = False
         self.fps = None
@@ -103,6 +106,8 @@ class CameraDisplay:
             self.camera.running = False
             if self.camera.cap is not None:
                 self.camera.cap.release()
+            if not self.use_widget:
+                cv2.destroyAllWindows()
             print("Camera released")
             return
     
@@ -112,8 +117,21 @@ class CameraDisplay:
             image = change['new']
             if not self.img_to_display_img_callback is None:
                 image = self.img_to_display_img_callback(image)
-            self.image_widget.value = bgr8_to_jpeg(image)
+            self.latest_frame = image
+            if self.use_widget:
+                self.image_widget.value = bgr8_to_jpeg(image)
+            else:
+                cv2.imshow("Camera", image)
+                cv2.waitKey(1)
             self._processing_frame = False
+
+    def show(self):
+        if self.use_widget:
+            return
+
+        if self.latest_frame is not None:
+            cv2.imshow("Camera", self.latest_frame)
+            cv2.waitKey(1)
     
     def start(self):
         if self.camera is None:

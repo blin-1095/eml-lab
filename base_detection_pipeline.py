@@ -21,8 +21,15 @@ class BaseDetectionPipeline():
 
         cam.start()
 
-        while input("Enter 'q' to quit: ") != "q":
-            pass
+        if on_jupyter:
+            while input("Enter 'q' to quit: ") != "q":
+                pass
+        else:
+            while True:
+                cam.show()
+
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
 
         cam.stop()
         cam.release()
