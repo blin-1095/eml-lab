@@ -3,8 +3,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class TinyYoloV2(nn.Module):
-
-    def __init__(self, num_classes=1, channels=None):
+    """
+    TinyYoloV2 implementation, which handles cases where the state dict is:
+    - pruned
+    - variable class count
+    - batchnorm fused with conv layers
+    """
+    def __init__(self, num_classes=1, channels=None, fused=False):
         super().__init__()
         
         # Default to unpruned channels if no channels are passed
@@ -19,39 +24,47 @@ class TinyYoloV2(nn.Module):
 
         self.register_buffer("anchors", torch.tensor(anchors))
         self.num_classes = num_classes
+        self.fused = fused
 
         self.pad = nn.ReflectionPad2d((0, 1, 0, 1))
 
-        # 2. Link the inputs, outputs, and batch norms sequentially!
-        self.conv1 = nn.Conv2d(3, channels[0], 3, 1, 1, bias=False)
-        self.bn1 = nn.BatchNorm2d(channels[0])
+        # If fused=True, convolutions NEED biases to absorb the BatchNorm shift.
+        # self.bnX is nn.Identity(), which costs zero computation and we skip
+        # the ugly if else statements
 
-        self.conv2 = nn.Conv2d(channels[0], channels[1], 3, 1, 1, bias=False)
-        self.bn2 = nn.BatchNorm2d(channels[1])
+        # If fused=False, convolutions do not need biases (BatchNorm handles it).
+        
+        conv_bias = True if fused else False
 
-        self.conv3 = nn.Conv2d(channels[1], channels[2], 3, 1, 1, bias=False)
-        self.bn3 = nn.BatchNorm2d(channels[2])
+        self.conv1 = nn.Conv2d(3, channels[0], 3, 1, 1, bias=conv_bias)
+        self.bn1 = nn.Identity() if fused else nn.BatchNorm2d(channels[0])
 
-        self.conv4 = nn.Conv2d(channels[2], channels[3], 3, 1, 1, bias=False)
-        self.bn4 = nn.BatchNorm2d(channels[3])
+        self.conv2 = nn.Conv2d(channels[0], channels[1], 3, 1, 1, bias=conv_bias)
+        self.bn2 = nn.Identity() if fused else nn.BatchNorm2d(channels[1])
 
-        self.conv5 = nn.Conv2d(channels[3], channels[4], 3, 1, 1, bias=False)
-        self.bn5 = nn.BatchNorm2d(channels[4])
+        self.conv3 = nn.Conv2d(channels[1], channels[2], 3, 1, 1, bias=conv_bias)
+        self.bn3 = nn.Identity() if fused else nn.BatchNorm2d(channels[2])
 
-        self.conv6 = nn.Conv2d(channels[4], channels[5], 3, 1, 1, bias=False)
-        self.bn6 = nn.BatchNorm2d(channels[5])
+        self.conv4 = nn.Conv2d(channels[2], channels[3], 3, 1, 1, bias=conv_bias)
+        self.bn4 = nn.Identity() if fused else nn.BatchNorm2d(channels[3])
 
-        self.conv7 = nn.Conv2d(channels[5], channels[6], 3, 1, 1, bias=False)
-        self.bn7 = nn.BatchNorm2d(channels[6])
+        self.conv5 = nn.Conv2d(channels[3], channels[4], 3, 1, 1, bias=conv_bias)
+        self.bn5 = nn.Identity() if fused else nn.BatchNorm2d(channels[4])
 
-        self.conv8 = nn.Conv2d(channels[6], channels[7], 3, 1, 1, bias=False)
-        self.bn8 = nn.BatchNorm2d(channels[7])
+        self.conv6 = nn.Conv2d(channels[4], channels[5], 3, 1, 1, bias=conv_bias)
+        self.bn6 = nn.Identity() if fused else nn.BatchNorm2d(channels[5])
 
-        # Final layer output needs to stay 30
+        self.conv7 = nn.Conv2d(channels[5], channels[6], 3, 1, 1, bias=conv_bias)
+        self.bn7 = nn.Identity() if fused else nn.BatchNorm2d(channels[6])
+
+        self.conv8 = nn.Conv2d(channels[6], channels[7], 3, 1, 1, bias=conv_bias)
+        self.bn8 = nn.Identity() if fused else nn.BatchNorm2d(channels[7])
+
+        # Final layer output always has a bias, regardless of fusion
         self.conv9 = nn.Conv2d(channels[7], len(anchors) * (5 + num_classes), 1, 1, 0)
 
     def forward(self, x, yolo=True):
-
+        
         x = self.conv1(x)
         x = self.bn1(x)
         x = F.max_pool2d(x, kernel_size=2, stride=2)
