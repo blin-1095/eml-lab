@@ -9,11 +9,19 @@ from utils.yolo import nms, filter_boxes
 
 class OnnxDetectionPipeline(BaseDetectionPipeline):
 
-    def __init__(self, onnx_path, device="cuda"):
-        super().__init__()
+    def __init__(self, device):
+        super().__init__(device)
+        self.input_image = np.empty((1,3,320,320), dtype=np.float32)
+        self.prev_time = time.time()
+        self.session = None
+        self.input_tensor = None
+        self.output_tensor = None
+        self.io_binding = None
+
+    def setup_model(self, onnx_path):
         self.session = ort.InferenceSession(
             onnx_path,
-            providers=["CUDAExecutionProvider"]
+            providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
         )
 
         input_name = self.session.get_inputs()[0].name
@@ -21,13 +29,13 @@ class OnnxDetectionPipeline(BaseDetectionPipeline):
 
         self.input_tensor = torch.empty(
             (1, 3, 320, 320),
-            device=device,
+            device=self.device,
             dtype=torch.float32
         )
 
         self.output_tensor = torch.empty(
             (1, 5, 10, 10, 6),
-            device=device,
+            device=self.device,
             dtype=torch.float32
         )
 
@@ -35,7 +43,7 @@ class OnnxDetectionPipeline(BaseDetectionPipeline):
 
         self.io_binding.bind_input(
             name=input_name,
-            device_type=device,
+            device_type=self.device,
             device_id=0,
             element_type=np.float32,
             shape=tuple(self.input_tensor.shape),
@@ -44,14 +52,12 @@ class OnnxDetectionPipeline(BaseDetectionPipeline):
 
         self.io_binding.bind_output(
             name=output_name,
-            device_type=device,
+            device_type=self.device,
             device_id=0,
             element_type=np.float32,
             shape=tuple(self.output_tensor.shape),
             buffer_ptr=self.output_tensor.data_ptr(),
         )
-
-        self.input_image = np.empty((1,3,320,320), dtype=np.float32)
         self.prev_time = time.time()
 
     def callback(self, image):

@@ -6,6 +6,8 @@ from onnx_detection_pipeline import OnnxDetectionPipeline
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+on_jupyter = False
+
 torch_models = [
     ("Torch baseline", "state_dicts/voc_pretrained.pt", 20),
 ]
@@ -32,21 +34,19 @@ Format: (name, path)
 results = {}
 
 # Torch models
+torch_pipeline = TorchDetectionPipeline(device)
 for name, path, num_classes in torch_models:
-    pipeline = TorchDetectionPipeline(num_classes, path, device)
-    results[name] = pipeline.fps_pipeline()
-
-    del pipeline
+    torch_pipeline.setup_model(num_classes, path)
+    results[name] = torch_pipeline.fps_pipeline(on_jupyter=on_jupyter)
 
     if device.type == "cuda":
         torch.cuda.empty_cache()
 
 # ONNX models
+onnx_pipeline = OnnxDetectionPipeline(device)
 for name, path in onnx_models:
-    pipeline = OnnxDetectionPipeline(path, device)
-    results[name] = pipeline.fps_pipeline()
-
-    del pipeline
+    onnx_pipeline.setup_model(path)
+    results[name] = onnx_pipeline.fps_pipeline(on_jupyter=on_jupyter)
 
     if device.type == "cuda":
         torch.cuda.empty_cache()

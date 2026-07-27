@@ -1,19 +1,24 @@
 from utils.camera import CameraDisplay
 import time
+import cv2
 
 class BaseDetectionPipeline():
 
-    def __init__(self):
+    def __init__(self, device):
         self.frame_count = 0
         self.warmup_frames = 30
         self.start_time = None
         self.frame_threshold = 1000 + self.warmup_frames
+        self.device = device
 
     def callback(self, image):
         self.frame_count += 1
         return image
 
-    def run_pipeline(self):
+    def setup_model():
+        pass
+
+    def run_pipeline(self, on_jupyter=True):
         """
         Runs only the model pipeline. Enter 'q' to stop it.
         """
@@ -34,7 +39,7 @@ class BaseDetectionPipeline():
         cam.stop()
         cam.release()
 
-    def fps_pipeline(self):
+    def fps_pipeline(self, on_jupyter=True):
         """
         Runs the model pipeline and measures the fps. Stops after reaching self.frame_threshold.
         """
@@ -44,8 +49,12 @@ class BaseDetectionPipeline():
         cam = CameraDisplay(self.callback)
         cam.start()
 
-        while self.frame_count < self.frame_threshold:
-            pass
+        if on_jupyter:
+            while self.frame_count < self.frame_threshold:
+                pass
+        else:
+            while self.frame_count < self.frame_threshold:
+                cam.show()
 
         cam.stop()
         cam.release()

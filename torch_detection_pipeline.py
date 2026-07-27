@@ -9,9 +9,14 @@ from utils.yolo import nms, filter_boxes
 
 class TorchDetectionPipeline(BaseDetectionPipeline):
 
-    def __init__(self, num_classes, state_dict_path, device):
-        super().__init__()
-        self.device = device
+    def __init__(self, device):
+        super().__init__(device)
+        self.net = None
+        #self.net = TinyYoloV2(num_classes=num_classes)
+        #self.net.load_state_dict(torch.load(state_dict_path, map_location=self.device))
+        self.prev_time = time.time()
+
+    def setup_model(self, num_classes, state_dict_path):
         self.net = TinyYoloV2(num_classes=num_classes)
         self.net.load_state_dict(torch.load(state_dict_path, map_location=self.device))
         self.prev_time = time.time()
