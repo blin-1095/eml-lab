@@ -7,7 +7,7 @@ from utils.dataloader import VOCDataLoader, VOCDataLoaderPerson
 
 def main():
     parser = argparse.ArgumentParser(description="Batch Evaluate Models in state_dict/separate")
-    parser.add_argument("--dir", type=str, default="state_dict/separate", help="Directory containing the state dicts")
+    parser.add_argument("--dir", type=str, default="state_dicts/separate", help="Directory containing the state dicts")
     parser.add_argument("--batch_size", type=int, default=64, help="Batch size for evaluation")
     args = parser.parse_args()
 
