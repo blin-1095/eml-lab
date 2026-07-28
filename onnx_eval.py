@@ -16,7 +16,7 @@ def evaluate_onnx_model(onnx_path: str, test_loader, pipeline_name: str):
     print(f"\n{'='*50}\n EVALUATING ONNX MODEL: {pipeline_name}\n{'='*50}")
     
     # 1. Setup ONNX Session
-    session = ort.InferenceSession(onnx_path, providers=['CUDAExecutionProvider'])
+    session = ort.InferenceSession(onnx_path, providers=['TensorrtExecutionProvider'])
     input_name = session.get_inputs()[0].name
     
     # 2. Benchmark Inference Speed
