@@ -1,6 +1,7 @@
 import os
 import torch
 from tinyyolov2 import TinyYoloV2
+from typing import Dict, Any, Union
 
 def _fuse_conv_bn(conv_w, bn_rm, bn_rv, bn_w, bn_b, conv_b=None):
     """Mathematically fuses Conv and BatchNorm layers."""
@@ -41,13 +42,11 @@ def fuse_model_weights(sd: dict, device: torch.device) -> dict:
     
     return fused_sd
 
-from typing import Dict, Any, Union
-import torch
 
-def load_fused_model(state_dict: Union[str, Dict[str, Any]], device: torch.device) -> TinyYoloV2:
+def fuse_sd(state_dict: Union[str, Dict[str, Any]], device: torch.device) -> dict:
     """
-    Loads an unfused checkpoint (from memory or disk), fuses weights, 
-    and returns an instantiated Fused TinyYoloV2 model.
+    Loads an unfused state dict (from memory or disk), fuses weights, 
+    and returns the state dict.
     """
     # 1. Handle both file paths and in-memory dictionaries
     if isinstance(state_dict, str):
@@ -59,30 +58,6 @@ def load_fused_model(state_dict: Union[str, Dict[str, Any]], device: torch.devic
     else:
         raise TypeError(f"Expected file path (str) or state dict (dict), got {type(state_dict).__name__}")
 
-    # 2. Extract architecture parameters dynamically
-    num_classes = int((base_sd['conv9.weight'].shape[0] / 5) - 5)
-    channels = [base_sd[f'conv{i}.weight'].shape[0] for i in range(1, 9)]
-    
-    # 3. Fuse the weights
-    # IMPORTANT: Pass the loaded base_sd dictionary here, NOT a file path!
     fused_sd = fuse_model_weights(base_sd, device)
     
-    # 4. Build and load the fused model
-    model = TinyYoloV2(num_classes=num_classes, channels=channels, fused=True)
-    model.load_state_dict(fused_sd, strict=False)
-    model.to(device)
-    model.eval()
-    
-    return model
-
-def export_fused_onnx(model: TinyYoloV2, dummy_input: torch.Tensor, dest_path: str) -> str:
-    """Exports a fused PyTorch model to ONNX."""
-    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-    
-    torch.onnx.export(
-        model, dummy_input, dest_path,
-        export_params=True, opset_version=11,
-        input_names=['input_image'], output_names=['yolo_output'],
-    )
-    print(f"Exported optimized ONNX to '{dest_path}'")
-    return dest_path
+    return fused_sd

@@ -3,18 +3,17 @@ import gc
 from torch.utils.data import DataLoader
 import numpy as np
 import copy
+import os
 
 # ---------------------------------------------------------
 # 1. IMPORTS
 # ---------------------------------------------------------
-from pipelines.master_pipeline import MasterPipeline
-from pipelines.augmentation_pipeline import AugmentationPipeline
-from pipelines.pruning_pipeline import PruningPipeline
-from pipelines.person_only_pipeline import PersonOnlyPipeline
+from pipelines.augmented_po_pipeline import AugmentedPersonOnlyPipeline
+from pipelines.augmented_pruning_pipeline import AugmentedPruningPipeline
 
 from utils.dataloader import VOCDataLoader, VOCDataLoaderPerson
 
-from utils.fusion import load_fused_model, export_fused_onnx
+from utils.fusion import fuse_sd
 from utils.onnx_quantization import apply_static_quantization
 from transformation.transform_generator import TransformGenerator
 from transformation.horizontal_flip_transform import HorizontalFlipTransform
@@ -30,6 +29,42 @@ from transformation.sobel_filter_transform import SobelFilterTransform
 from onnx_eval import evaluate_onnx_model
 from evaluate import evaluate_model
 
+from tinyyolov2 import TinyYoloV2  # Make sure this import is at the top of your script
+
+
+def export_sd_to_onnx(state_dict: dict, dataloader, device: torch.device, dest_path: str):
+    """
+    Auto-detects model architecture from a state_dict, initializes a dummy YOLO model, 
+    and exports it to ONNX with static shapes for TensorRT.
+    """
+    channels = [state_dict[f'conv{i}.weight'].shape[0] for i in range(1, 9)]
+    num_classes = int((state_dict['conv9.weight'].shape[0] / 5) - 5)
+    is_fused = 'bn1.weight' not in state_dict.keys()
+
+    model = TinyYoloV2(num_classes=num_classes, channels=channels, fused=is_fused)
+    model.load_state_dict(state_dict, strict=False)
+    model.to(device)
+    model.eval()
+
+    dummy_input, _ = next(iter(dataloader))
+    # slice batch size for Jetson's batch size since axes are now static
+    # we only need one image at a time for inference later anyway
+    dummy_input = dummy_input[:1].to(device)
+
+    # 4. Ensure the destination folder exists
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+
+    torch.onnx.export(
+        model, 
+        dummy_input, 
+        dest_path,
+        export_params=True, 
+        opset_version=11,
+        input_names=['input_image'], 
+        output_names=['yolo_output']
+    )
+    print(f"[*] Successfully exported static ONNX model to '{dest_path}' (Classes: {num_classes})")
+
 # ---------------------------------------------------------
 # HARDWARE & HYPERPARAMETERS
 # ---------------------------------------------------------
@@ -39,7 +74,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 LEARNING_RATE = 1e-5 
 TRAIN_BATCH_SIZE = 164
 EVAL_BATCH_SIZE = 164  
-EPOCHS = 250
+EPOCHS = 300
 NUM_PRUNING_RATIOS = 5
 TRANSFORM_PROBABILITY = 0.15
 
@@ -78,15 +113,14 @@ print(f"Loaded {len(transform_list)} transforms.")
 if __name__ == "__main__":
     
     # -----------------------------------------------------
-    # Run Master Pipeline
-    # Trains for person-only detection with data augmentation
+    # Run Person Only Pipeline with data augmentation
     # -----------------------------------------------------
     print("\n" + "="*50)
-    print("STARTING MASTER PIPELINE")
+    print("STARTING PERSON ONLY PIPELINE")
     print("="*50)
     
-    master_pipeline = MasterPipeline(
-        pipeline_name="Master Pipeline",
+    augmented_po_pipeline = AugmentedPersonOnlyPipeline(
+        pipeline_name="Augmented PO Pipeline",
         train_loader=train_loader,
         val_loader=val_loader,
         test_loader=test_loader,
@@ -95,12 +129,20 @@ if __name__ == "__main__":
         epochs=EPOCHS,
         transform_generator=transform_generator
     )
-    
-    master_pipeline.load_state_dict("state_dicts/voc_pretrained.pt") 
-    master_sd = master_pipeline.run()
+
+    augmented_po_pipeline.load_state_dict("state_dicts/voc_pretrained.pt") 
+    master_sd = augmented_po_pipeline.run()
+
+    # Export interative result
+    export_sd_to_onnx(
+        state_dict=master_sd, 
+        dataloader=test_loader, 
+        device=DEVICE, 
+        dest_path="models/po_model.onnx"
+    )
 
     # Clean up baseline from memory and VRAM
-    del master_pipeline
+    del augmented_po_pipeline
     gc.collect()
     torch.cuda.empty_cache()
     
@@ -113,6 +155,7 @@ if __name__ == "__main__":
     baseline_fps = 1.0
     best_score = float('-inf')  # Start at negative infinity to maximize AP score
     best_ratio = None
+    best_ratio_int = None
     results_log = {}
 
     pruning_sd = master_sd
@@ -120,7 +163,7 @@ if __name__ == "__main__":
 
     for target_ratio in pruning_ratios:
 
-        target_ratio_int = int(target_ratio * 100)
+        target_ratio_int = int(round(target_ratio * 100))
         pipeline_name = f"Pruned_Pipeline_{target_ratio_int}"
 
         if target_ratio == 0.0:
@@ -132,7 +175,7 @@ if __name__ == "__main__":
         print(f"STARTING ITERATIVE PRUNING (Global Target: {target_ratio:.2f} | Relative Drop: {relative_ratio:.2f})")
         print("="*50)
 
-        pipeline = PruningPipeline(
+        pipeline = AugmentedPruningPipeline(
             pipeline_name=pipeline_name,
             train_loader=train_loader,
             val_loader=val_loader,
@@ -140,16 +183,23 @@ if __name__ == "__main__":
             device=DEVICE,
             learning_rate=LEARNING_RATE,
             epochs=EPOCHS,
-            pruning_ratio=relative_ratio
+            pruning_ratio=relative_ratio,
+            transform_generator=transform_generator
         )
         
-        # 1. Run the pipeline and get the unified dictionary
-
-        saved_sd_path = f"state_dicts/separate/pruned_pipeline_{target_ratio_int}_best_sd.pt"
+        saved_sd_path = f"state_dicts/master/pruned_pipeline_{target_ratio_int}_best_sd.pt"
+        saved_model_path = f"models/pruned_pipeline_{target_ratio_int}_model.onnx"
 
         pipeline.load_state_dict(pruning_sd)
         sd = pipeline.run()
         pipeline.export_state_dict(saved_sd_path)
+
+        export_sd_to_onnx(
+            state_dict=sd, 
+            dataloader=test_loader, 
+            device=DEVICE, 
+            dest_path=saved_model_path
+        )
 
         del pipeline
         gc.collect()
@@ -187,7 +237,7 @@ if __name__ == "__main__":
             best_ratio_int = target_ratio_int
         
         current_global_sparsity = target_ratio
-        current_sd = copy.deepcopy(sd)
+        pruning_sd = copy.deepcopy(sd)
             
 
     print(f"\nBest Iterative Pruning Ratio: {best_ratio:.2f} (Score: {best_score:.4f})")
@@ -200,12 +250,12 @@ if __name__ == "__main__":
     print("FUSING BATCHNORM LAYERS AND EXPORTING")
     print("="*50)
 
-    fused_model = load_fused_model(state_dict=f"state_dicts/pruned_pipeline_{int(best_ratio*100)}_best_sd.pt", device=DEVICE)
+    fused_sd = fuse_sd(state_dict=f"state_dicts/master/pruned_pipeline_{best_ratio_int}_best_sd.pt", device=DEVICE)
 
-    warmup, _ = next(iter(test_loader))
-    export_fused_onnx(
-        model=fused_model, 
-        dummy_input=warmup[:1].to(DEVICE), 
+    export_sd_to_onnx(
+        state_dict=fused_sd, 
+        dataloader=test_loader, 
+        device=DEVICE, 
         dest_path="models/fused_model.onnx"
     )
 
@@ -217,18 +267,21 @@ if __name__ == "__main__":
     print("APPLYING ONNX QUANTIZATION AND EXPORTING")
     print("="*50)
 
+    # dummy dataloader that loads the batch size fitting for the jetson
+    onnx_dummy_loader = VOCDataLoaderPerson(split="val", batch_size=1)
+
     # Apply Static INT8 Quantization (using QDQ format)
     apply_static_quantization(
         input_onnx_path="models/fused_model.onnx",
-        output_onnx_path="models/baseline_int8_quantized.onnx",
-        calib_loader=val_loader
+        output_onnx_path="models/tinyyolov2_improved.onnx",
+        calib_loader=onnx_dummy_loader
     )
 
     # Evaluate and Log the Quantized Model
     evaluate_onnx_model(
-        onnx_path="models/baseline_int8_quantized.onnx",
-        test_loader=test_loader,
-        pipeline_name="ONNX_INT8_Quantized"
+        onnx_path="models/tinyyolov2_improved.onnx",
+        test_loader=onnx_dummy_loader,
+        pipeline_name="All_improv_model"
     )
 
     print("\n[*] Training script finished successfully!")

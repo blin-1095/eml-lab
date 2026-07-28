@@ -11,7 +11,7 @@ from typing import cast
 
 from transformation.transform_generator import TransformGenerator
 
-class MasterPipeline(BasePipeline):
+class AugmentedPersonOnlyPipeline(BasePipeline):
     """
     Master pipeline for applying person only detection training with augmented data.
     """

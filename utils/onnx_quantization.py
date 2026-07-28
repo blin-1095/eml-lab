@@ -9,18 +9,22 @@ class ONNXCalibrationReader(CalibrationDataReader):
     Wraps a PyTorch DataLoader into an ONNX-compatible Calibration Reader.
     Converts batches into dictionaries of NumPy arrays for Static Quantization.
     """
-    def __init__(self, dataloader, onnx_model_path: str):
+    def __init__(self, dataloader, onnx_model_path: str, max_samples: int = 200):
 
         if ort is None:
             raise ImportError("ONNX Runtime is missing. Run: pip install onnxruntime")
 
         self.iterator = iter(dataloader)
+        self.max_samples = max_samples
+        self.current_sample = 0
         
         # Extract the exact input node name from the ONNX graph
-        session = ort.InferenceSession(onnx_model_path, providers=['TensorrtExecutionProvider'])
+        session = ort.InferenceSession(onnx_model_path, providers=['CPUExecutionProvider'])
         self.input_name = session.get_inputs()[0].name
 
     def get_next(self) -> dict:
+        if self.current_sample >= self.max_samples:
+            return None # type: ignore
         try:
             images, _ = next(self.iterator)
             return {self.input_name: images.numpy()}
