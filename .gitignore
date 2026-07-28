@@ -14,7 +14,8 @@ wheels/
 .direnv
 *.log
 # Data is getting downloaded when pipeline is run anyway
-data/ 
+data/VOCdevkit 
+VOCtrainval*
 # The raw json files are way too large to be handled by git so we never commit them
 # If raw data is needed just run the pipeline 
 #(or i will find a way to save artifacts like this later)
