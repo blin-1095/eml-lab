@@ -109,7 +109,7 @@ def evaluate_onnx_session(session: ort.InferenceSession, test_loader, pipeline_n
 def main():
     parser = argparse.ArgumentParser(description="Batch Evaluate ONNX Models on Jetson TensorRT")
     parser.add_argument("--dir", type=str, default="models", help="Directory containing the .onnx files")
-    parser.add_argument("--batch_size", type=int, default=8, help="Batch size for evaluation")
+    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for evaluation")
     args = parser.parse_args()
 
     if not os.path.exists(args.dir):
