@@ -23,7 +23,7 @@ from typing_extensions import Optional
 # 1. UTILITY FUNCTIONS
 # =====================================================================
 
-def calculate_metrics(model: torch.nn.Module, loader, device: torch.device, conf_thresh: float = 0.25, nms_thresh: float = 0.5) -> dict:
+def calculate_metrics(model: torch.nn.Module, loader, device: torch.device, conf_thresh: float = 0.01, nms_thresh: float = 0.5) -> dict:
     """Runs inference over a dataloader to calculate Test Loss, Precision, Recall, and AP in one pass."""
     model.eval()
     
