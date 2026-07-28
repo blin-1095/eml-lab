@@ -21,7 +21,6 @@ class PruningPipeline(BasePipeline):
         learning_rate: float, 
         epochs: int, 
         pruning_ratio: float,
-        sd_path: Optional[str] = None, 
         patience: int = 20
     ):
         
@@ -33,7 +32,6 @@ class PruningPipeline(BasePipeline):
             device=device, 
             learning_rate=learning_rate, 
             epochs=epochs, 
-            sd_path=sd_path,
             patience=patience
         )
 
@@ -41,16 +39,15 @@ class PruningPipeline(BasePipeline):
 
     def _setup_model(self) -> torch.nn.Module:
         """
-        Loads a pre-trained model, applies L1 unstructured pruning, 
+        Loads a pre-trained model, applies L1 structured pruning, 
         densifies the architecture, and returns the smaller model for fine-tuning.
         """
 
-        if self.sd_path is None:
-            raise ValueError("No state dict path set even though it is required for pruning.")
+        if self._state_dict is None:
+            raise ValueError("No state dict loaded. Required for pruning!")
         
-        path_to_load = self.sd_path
-        print(f"[*] Loading weights from: '{path_to_load}'")
-        original_sd = torch.load(path_to_load, map_location=self.device)
+        print(f"[*] Pruning.")
+        original_sd = self._state_dict
 
         pruned_sd = l1_structured_pruning(original_sd, self.pruning_ratio)
         dense_sd = densify_state_dict(pruned_sd)

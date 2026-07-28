@@ -7,6 +7,7 @@ from pipelines.base_pipeline import BasePipeline
 # make pyright shut up
 from torch.utils.data import DataLoader
 from typing_extensions import Optional
+from typing import cast
 
 from transformation.transform_generator import TransformGenerator
 
@@ -24,7 +25,6 @@ class MasterPipeline(BasePipeline):
         learning_rate: float, 
         epochs: int, 
         transform_generator: TransformGenerator,
-        sd_path: Optional[str] = None, 
         patience: int = 20
     ):
         super().__init__(
@@ -35,7 +35,6 @@ class MasterPipeline(BasePipeline):
             device=device,
             learning_rate=learning_rate,
             epochs=epochs,
-            sd_path=sd_path,
             patience=patience
         )
 
@@ -65,14 +64,12 @@ class MasterPipeline(BasePipeline):
 
         model = TinyYoloV2(num_classes=1)
         
-        if self.sd_path is None:
+        if self._state_dict is None:
             print(f"[*] No weights loaded. Training fresh network.")
             return model.to(self.device)
 
-        path_to_load = self.sd_path
-
-        print(f"[*] Loading weights from: '{path_to_load}'")
-        state_dict = torch.load(path_to_load, map_location=self.device)
+        print(f"[*] Loading weights")
+        state_dict = cast(dict, self._state_dict)
 
         # load pretrained weights but skip 9th layer as we have to retrain it 
         model.load_state_dict({k: v for k, v in state_dict.items() if not '9' in k}, strict=False)

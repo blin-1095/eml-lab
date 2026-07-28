@@ -1,3 +1,9 @@
+# make the linter shut up
+from __future__ import annotations
+from torch.optim.optimizer import Optimizer
+from typing_extensions import Tuple, Dict, Optional, Any
+
+
 from abc import ABC, abstractmethod
 
 import torch
@@ -15,15 +21,11 @@ from utils.loss import YoloLoss
 from utils.early_stopping import EarlyStopping
 from utils.logger import ExperimentLogger
 
-# make the linter shut up
-from torch.optim.optimizer import Optimizer
-from typing_extensions import Tuple, Dict, Optional, Any
-
 
 class BasePipeline(ABC):
     """
     Standardized base pipeline for training TinyYoloV2.
-    Handles the boilerplate training loops, early stopping, and evaluation.
+    Handles the boilerplate training loops, early stopping and state dict export.
     """
 
     def __init__(
@@ -35,7 +37,6 @@ class BasePipeline(ABC):
         device: torch.device, 
         learning_rate: float, 
         epochs: int, 
-        sd_path: Optional[str] = None,
         patience: int = 20
     ):
         self.pipeline_name = pipeline_name
@@ -45,9 +46,9 @@ class BasePipeline(ABC):
         self.device = device
         self.learning_rate = learning_rate
         self.epochs = epochs
-        self.sd_path = sd_path
         self.patience = patience
-        
+
+        self._state_dict = None 
         # Placeholders for architecture components
         self.model: Optional[nn.Module] = None
         self.optimizer: Optional[Optimizer] = None
@@ -151,25 +152,51 @@ class BasePipeline(ABC):
 
         logger.save_report()
 
-        clean_name = self.pipeline_name.split()[0].lower()
-        self._export_state_dict(best_state_dict, dest_path=f"state_dicts/{clean_name}_best_sd.pt")
+        self.state_dict = copy.deepcopy(best_state_dict)
 
-        save_path = f"state_dicts/{clean_name}_best_sd.pt"
-        print(f"Training Pipeline Finished! Model saved to {save_path}")
+        print(f"Training Pipeline Finished!")
 
         return best_state_dict
 
 
-    def _export_state_dict(self, state_dict: dict, dest_path: str):
+    def export_state_dict(self, dest_path: str):
         """
         Export state_dict to the state_dict location in the project.
         """
+
+        if self.state_dict is None:
+            raise ValueError("No state dict to export. Have you run training already?")
 
         dest_dir = os.path.dirname(dest_path)
         if dest_dir:
             os.makedirs(dest_dir, exist_ok=True)
 
 
-        torch.save(state_dict, dest_path)
+        torch.save(self.state_dict, dest_path)
         
         print(f"Successfully exported state_dict to '{dest_path}'!")
+    
+    def load_state_dict(self, state_dict: Optional[str | Dict[str, Any]] = None):
+            """
+            Loads a saved state dict into the class.
+            Accepts either an in-memory dictionary or a file path (string).
+            """
+            source = state_dict
+            
+            if source is None:
+                raise ValueError("No state dict provided. Pass a dict or a file path")
+                
+            if isinstance(source, str):
+                if not os.path.exists(source):
+                    raise FileNotFoundError(f"State dict file not found at: {source}")
+                print(f"Loading state dict from file '{source}' to device '{self.device}'...")
+                # weights_only=True prevents arbitrary code execution and silences PyTorch FutureWarnings
+                loaded_sd = torch.load(source, map_location=self.device, weights_only=True)
+            elif isinstance(source, dict):
+                print("Loading state dict directly from memory...")
+                loaded_sd = source
+            else:
+                raise TypeError(f"Expected a file path (str) or state dict (dict), got {type(source).__name__}")
+            
+            self._state_dict = loaded_sd
+            print("State dict loaded successfully!")
