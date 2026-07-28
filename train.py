@@ -2,6 +2,7 @@ import torch
 import gc
 from torch.utils.data import DataLoader
 import numpy as np
+import copy
 
 # ---------------------------------------------------------
 # 1. IMPORTS
@@ -36,9 +37,9 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Standard training hyperparameters
 LEARNING_RATE = 1e-5 
-TRAIN_BATCH_SIZE = 180
-EVAL_BATCH_SIZE = 180  
-EPOCHS = 3
+TRAIN_BATCH_SIZE = 164
+EVAL_BATCH_SIZE = 164  
+EPOCHS = 250
 NUM_PRUNING_RATIOS = 5
 TRANSFORM_PROBABILITY = 0.15
 
@@ -92,10 +93,10 @@ if __name__ == "__main__":
         device=DEVICE,
         learning_rate=LEARNING_RATE,
         epochs=EPOCHS,
-        sd_path="state_dicts/voc_pretrained.pt",
         transform_generator=transform_generator
     )
     
+    master_pipeline.load_state_dict("state_dicts/voc_pretrained.pt") 
     master_sd = master_pipeline.run()
 
     # Clean up baseline from memory and VRAM
@@ -114,7 +115,7 @@ if __name__ == "__main__":
     best_ratio = None
     results_log = {}
 
-    current_sd_path = "state_dicts/master_pipeline_best_sd.pt"
+    pruning_sd = master_sd
     current_global_sparsity = 0.0
 
     for target_ratio in pruning_ratios:
@@ -128,8 +129,7 @@ if __name__ == "__main__":
             relative_ratio = (target_ratio - current_global_sparsity) / (1.0 - current_global_sparsity)
 
         print(f"\n" + "="*50)
-        print(f"🚀 STARTING ITERATIVE PRUNING (Global Target: {target_ratio:.2f} | Relative Drop: {relative_ratio:.2f})")
-        print(f"[*] Starting weights loaded from: {current_sd_path}")
+        print(f"STARTING ITERATIVE PRUNING (Global Target: {target_ratio:.2f} | Relative Drop: {relative_ratio:.2f})")
         print("="*50)
 
         pipeline = PruningPipeline(
@@ -140,25 +140,28 @@ if __name__ == "__main__":
             device=DEVICE,
             learning_rate=LEARNING_RATE,
             epochs=EPOCHS,
-            sd_path=current_sd_path,  
             pruning_ratio=relative_ratio
         )
         
         # 1. Run the pipeline and get the unified dictionary
-        pipeline.run()
+
+        saved_sd_path = f"state_dicts/separate/pruned_pipeline_{target_ratio_int}_best_sd.pt"
+
+        pipeline.load_state_dict(pruning_sd)
+        sd = pipeline.run()
+        pipeline.export_state_dict(saved_sd_path)
 
         del pipeline
         gc.collect()
         torch.cuda.empty_cache()
 
-        saved_sd_path = f"state_dicts/pruned_pipeline_{target_ratio_int}_best_sd.pt"
         print(f"\n[*] Evaluating Pruned Model (Ratio {target_ratio:.2f}) to determine efficiency...")
         
         results = evaluate_model(
             test_loader=test_loader, # Make sure this loader matches the num_classes above!
             device=DEVICE,
-            pipeline_name="Baseline_Pipeline",
-            sd_path=saved_sd_path
+            pipeline_name=pipeline_name,
+            sd_path=saved_sd_path,
         )
 
         current_fps = results["fps"]
@@ -184,11 +187,11 @@ if __name__ == "__main__":
             best_ratio_int = target_ratio_int
         
         current_global_sparsity = target_ratio
-        current_sd_path = saved_sd_path
+        current_sd = copy.deepcopy(sd)
             
 
     print(f"\nBest Iterative Pruning Ratio: {best_ratio:.2f} (Score: {best_score:.4f})")
-
+            
     # -----------------------------------------------------
     # Export batchnorm-layer-fused inference model
     # -----------------------------------------------------
@@ -197,7 +200,7 @@ if __name__ == "__main__":
     print("FUSING BATCHNORM LAYERS AND EXPORTING")
     print("="*50)
 
-    fused_model = load_fused_model(sd_path=f"state_dicts/pruned_pipeline_{int(best_ratio*100)}_best_sd.pt", device=DEVICE)
+    fused_model = load_fused_model(state_dict=f"state_dicts/pruned_pipeline_{int(best_ratio*100)}_best_sd.pt", device=DEVICE)
 
     warmup, _ = next(iter(test_loader))
     export_fused_onnx(
@@ -209,6 +212,10 @@ if __name__ == "__main__":
     # -----------------------------------------------------
     # Apply static INT8 quantization and export final model
     # -----------------------------------------------------
+
+    print("\n" + "="*50)
+    print("APPLYING ONNX QUANTIZATION AND EXPORTING")
+    print("="*50)
 
     # Apply Static INT8 Quantization (using QDQ format)
     apply_static_quantization(

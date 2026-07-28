@@ -1,28 +1,25 @@
 import os
-import json
 import glob
+import json
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
-# ---------------------------------------------------------
-# 1. SETUP AND DATA LOADING
-# ---------------------------------------------------------
-plt.style.use('ggplot')
-
-DATA_DIR = "raw_data"
-PLOT_DIR = "results/plots"
-os.makedirs(PLOT_DIR, exist_ok=True)
+DATA_DIR = "raw_data"   # Adjust to match your raw data directory path if needed
+PLOT_DIR = "results/plots" # Adjust to match your output plots directory if needed
 
 def load_data():
-    """Finds and categorizes all JSON experiment reports."""
+    """Finds and categorizes all JSON experiment reports, separating train logs from evaluation data."""
     data = {
         "baseline": None,
         "fused": None, 
         "quantized": None, 
         "augmented": None,
+        "augmented_train": None,
         "person_only": None,
-        "pruned": []
+        "person_only_train": None,
+        "pruned": [],
+        "pruned_train": []
     }
     
     files = glob.glob(f"{DATA_DIR}/*.json")
@@ -30,10 +27,14 @@ def load_data():
         with open(f, 'r') as file:
             report = json.load(file)
             
-            name = report.get("pipeline_name", os.path.basename(f)).lower()
-            report["pipeline_name"] = report.get("pipeline_name", os.path.basename(f))
+            filename = os.path.basename(f).lower()
+            name = report.get("pipeline_name", filename).lower()
+            report["pipeline_name"] = report.get("pipeline_name", filename)
             
-            # Check for 'fused' first so it doesn't get grabbed by 'baseline'
+            # Differentiate between training loop logs and evaluation reports
+            is_train = "train" in filename or "train" in name
+            
+            # Categorize based on architecture/pipeline type
             if "quantized" in name:
                 data["quantized"] = report
             elif "fused" in name:
@@ -41,22 +42,32 @@ def load_data():
             elif "baseline" in name:
                 data["baseline"] = report
             elif "augmented" in name:
-                data["augmented"] = report
+                if is_train:
+                    data["augmented_train"] = report
+                else:
+                    data["augmented"] = report
             elif "person" in name:
-                data["person_only"] = report
+                if is_train:
+                    data["person_only_train"] = report
+                else:
+                    data["person_only"] = report
             elif "pruned" in name:
-                data["pruned"].append(report)
+                if is_train:
+                    data["pruned_train"].append(report)
+                else:
+                    data["pruned"].append(report)
                 
     # Sort pruned models by their pruning ratio (0.0 to 0.8)
     data["pruned"] = sorted(data["pruned"], key=lambda x: x.get("pruning_ratio", 0.0))
+    data["pruned_train"] = sorted(data["pruned_train"], key=lambda x: x.get("pruning_ratio", 0.0))
     
     return data
 
 def get_all_models(data):
-    """Helper to compile a flat list of all valid reports for comparative plots."""
+    """Helper to compile a flat list of all valid evaluation reports for comparative plots."""
     models = []
     if data["baseline"]: models.append(data["baseline"])
-    if data["fused"]: models.append(data["fused"]) # Added to flat list
+    if data["fused"]: models.append(data["fused"]) 
     if data["quantized"]: models.append(data["quantized"])
     if data["augmented"]: models.append(data["augmented"])
     if data["person_only"]: models.append(data["person_only"])
@@ -68,6 +79,7 @@ def get_all_models(data):
 # ---------------------------------------------------------
 def plot_master_pr_curve(data):
     """Overlays averaged Precision-Recall curves for the main pipelines."""
+    os.makedirs(PLOT_DIR, exist_ok=True)
     plt.figure(figsize=(8, 6))
     
     colors = {"baseline": "tab:blue", "augmented": "tab:orange", "person_only": "tab:green"}
@@ -97,15 +109,22 @@ def plot_master_pr_curve(data):
     plt.close()
 
 def plot_convergence_overlay(data):
-    """Compares how fast the main pipelines learned (Validation Loss)."""
+    """Compares how fast the main pipelines learned (Validation Loss) using training logs."""
+    os.makedirs(PLOT_DIR, exist_ok=True)
     plt.figure(figsize=(8, 6))
     
-    for key, color in zip(["baseline", "augmented", "person_only"], ["tab:blue", "tab:orange", "tab:green"]):
-        if data.get(key):
-            val_losses = data[key].get("val_losses", [])
+    configs = [
+        ("Baseline", data.get("baseline"), "tab:blue"),
+        ("Augmented", data.get("augmented_train"), "tab:orange"),
+        ("Person-Only", data.get("person_only_train"), "tab:green")
+    ]
+    
+    for label, model_data, color in configs:
+        if model_data:
+            val_losses = model_data.get("val_losses", [])
             if val_losses:
                 epochs = range(1, len(val_losses) + 1)
-                plt.plot(epochs, val_losses, marker='s', label=data[key]["pipeline_name"], color=color, linewidth=2)
+                plt.plot(epochs, val_losses, marker='s', label=model_data.get("pipeline_name", label), color=color, linewidth=2)
 
     plt.xlabel("Epoch", fontweight='bold')
     plt.ylabel("Validation Loss", fontweight='bold')
@@ -119,6 +138,7 @@ def plot_convergence_overlay(data):
 def plot_dual_axis_pruning(pruned_data):
     """Shows AP going down while FPS goes up."""
     if not pruned_data: return
+    os.makedirs(PLOT_DIR, exist_ok=True)
     
     ratios = [d["pruning_ratio"] for d in pruned_data]
     aps = [d["ap"] for d in pruned_data]
@@ -148,6 +168,7 @@ def plot_dual_axis_pruning(pruned_data):
 def plot_pruning_pareto(pruned_data):
     """Scatter plot to easily identify the optimal model (top right)."""
     if not pruned_data: return
+    os.makedirs(PLOT_DIR, exist_ok=True)
     
     plt.figure(figsize=(8, 6))
     
@@ -173,6 +194,7 @@ def plot_pruning_pareto(pruned_data):
 def plot_efficiency_scores(pruned_data):
     """Calculates and plots the custom Efficiency Score."""
     if not pruned_data: return
+    os.makedirs(PLOT_DIR, exist_ok=True)
     
     baseline_fps = pruned_data[0]["fps"] if pruned_data[0]["fps"] > 0 else 1.0
     
@@ -213,13 +235,13 @@ def plot_parameters_vs_inference(data):
     """Parameters vs Inference Time (ms) scatter plot across models."""
     models = get_all_models(data)
     if not models: return
+    os.makedirs(PLOT_DIR, exist_ok=True)
 
     params_list = []
     latency_list = []
     labels = []
 
     for m in models:
-        # Support both naming conventions for parameter counts
         p = m.get("total_parameters", m.get("params", 0))
         fps = m.get("fps", 1.0)
         latency_ms = (1000.0 / fps) if fps > 0 else 0.0
@@ -232,7 +254,6 @@ def plot_parameters_vs_inference(data):
     plt.scatter(params_list, latency_list, s=120, color='tab:red', zorder=5, edgecolors='black')
 
     for i, txt in enumerate(labels):
-        # Shorten text labels for readability
         short_label = txt.replace("Pipeline", "").strip()
         plt.annotate(short_label, (params_list[i], latency_list[i]), 
                      textcoords="offset points", xytext=(0, 10), ha='center', fontsize=9)
@@ -246,6 +267,7 @@ def plot_parameters_vs_inference(data):
 
 def plot_final_benchmark_bars(data):
     """Grouped bar chart comparing AP and Test Loss for main pipelines."""
+    os.makedirs(PLOT_DIR, exist_ok=True)
     main_keys = ["baseline", "augmented", "person_only"]
     names = []
     aps = []
@@ -281,8 +303,11 @@ def plot_final_benchmark_bars(data):
     plt.close()
 
 def plot_training_gap(data):
-    """Smoothed learning curves showing Train vs Val loss with an overfitting gap fill."""
-    model = data.get("baseline") if data.get("baseline") else data.get("augmented")
+    """Smoothed learning curves showing Train vs Val loss with an overfitting gap fill using training logs."""
+    os.makedirs(PLOT_DIR, exist_ok=True)
+    model = data.get("augmented_train") if data.get("augmented_train") else data.get("person_only_train")
+    if not model:
+        model = data.get("baseline")
     if not model: return
 
     train_losses = model.get("train_losses", [])
@@ -296,12 +321,11 @@ def plot_training_gap(data):
     plt.plot(epochs, train_losses, label='Train Loss', color='tab:blue', marker='o', linewidth=2)
     plt.plot(epochs, val_losses, label='Validation Loss', color='tab:orange', marker='s', linewidth=2)
     
-    # Shading the overfitting gap
     plt.fill_between(epochs, train_losses, val_losses, color='gray', alpha=0.25, label='Generalization Gap')
 
     plt.xlabel("Epoch", fontweight='bold')
     plt.ylabel("Loss", fontweight='bold')
-    plt.title(f"Training Dynamics & Generalization Gap ({model['pipeline_name']})")
+    plt.title(f"Training Dynamics & Generalization Gap ({model.get('pipeline_name', 'Model')})")
     plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
     plt.legend(frameon=True, facecolor="white")
     plt.tight_layout()
@@ -312,6 +336,7 @@ def plot_shaded_auc_pr_curve(data):
     """Precision-Recall curve with shaded area under the curve (AUC / AP) for the best model."""
     models = get_all_models(data)
     if not models: return
+    os.makedirs(PLOT_DIR, exist_ok=True)
     
     best_model = max(models, key=lambda x: x.get("ap", 0.0))
     
@@ -327,7 +352,6 @@ def plot_shaded_auc_pr_curve(data):
     plt.figure(figsize=(8, 6))
     plt.plot(rec, prec, marker='o', color='tab:blue', linewidth=2, label=f"AP = {ap:.3f}")
     
-    # Shade area under the curve
     plt.fill_between(rec, prec, alpha=0.3, color='tab:blue', label='Area Under Curve (AP)')
 
     plt.xlim(0, 1.05)
@@ -345,13 +369,12 @@ def plot_fusion_before_after(data):
     baseline = data.get("baseline")
     fused = data.get("fused")
     
-    if not baseline or not fused:
-        return
+    if not baseline or not fused: return
+    os.makedirs(PLOT_DIR, exist_ok=True)
         
     labels = ['Unfused (Baseline)', 'Fused (Optimized)']
     aps = [baseline.get("ap", 0.0), fused.get("ap", 0.0)]
     
-    # Calculate inference time in milliseconds (latency)
     base_fps = baseline.get("fps", 1.0)
     fused_fps = fused.get("fps", 1.0)
     times = [1000.0 / base_fps if base_fps > 0 else 0, 
@@ -359,23 +382,17 @@ def plot_fusion_before_after(data):
     
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
     
-    # Plot AP (Should be identical)
     ax1.bar(labels, aps, color=['tab:blue', 'tab:green'], width=0.5, edgecolor='black')
     ax1.set_title("Average Precision (AP)\n(Accuracy Unchanged)", fontweight='bold')
     ax1.set_ylabel("AP Score", fontweight='bold')
     ax1.set_ylim(0, max(aps) * 1.25) 
-    
-    # Annotate AP bars
     for i, v in enumerate(aps):
         ax1.text(i, v + (max(aps)*0.02), f"{v:.4f}", ha='center', fontweight='bold')
         
-    # Plot Inference Time (Should drop)
     ax2.bar(labels, times, color=['tab:red', 'tab:orange'], width=0.5, edgecolor='black')
     ax2.set_title("Inference Latency\n(Lower is Better)", fontweight='bold')
     ax2.set_ylabel("Milliseconds (ms) per batch", fontweight='bold')
     ax2.set_ylim(0, max(times) * 1.25)
-    
-    # Annotate Time bars
     for i, v in enumerate(times):
         ax2.text(i, v + (max(times)*0.02), f"{v:.2f} ms", ha='center', fontweight='bold')
         
@@ -390,6 +407,7 @@ def plot_quantization_comparison(data):
     quantized = data.get("quantized")
     
     if not baseline or not quantized: return
+    os.makedirs(PLOT_DIR, exist_ok=True)
         
     labels = ['Baseline (FP32)', 'Quantized (INT8)']
     aps = [baseline.get("ap", 0.0), quantized.get("ap", 0.0)]
@@ -401,7 +419,6 @@ def plot_quantization_comparison(data):
     
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
     
-    # Plot AP (Will show a slight expected trade-off drop for INT8)
     ax1.bar(labels, aps, color=['tab:blue', 'tab:purple'], width=0.5, edgecolor='black')
     ax1.set_title("Average Precision (AP)\n(Accuracy Trade-off)", fontweight='bold')
     ax1.set_ylabel("AP Score", fontweight='bold')
@@ -409,7 +426,6 @@ def plot_quantization_comparison(data):
     for i, v in enumerate(aps):
         ax1.text(i, v + (max(aps)*0.02), f"{v:.4f}", ha='center', fontweight='bold')
         
-    # Plot Latency (Should show speed improvement)
     ax2.bar(labels, times, color=['tab:red', 'tab:orange'], width=0.5, edgecolor='black')
     ax2.set_title("Inference Latency\n(Lower is Better)", fontweight='bold')
     ax2.set_ylabel("Milliseconds (ms) per batch", fontweight='bold')
@@ -422,28 +438,6 @@ def plot_quantization_comparison(data):
     plt.savefig(f"{PLOT_DIR}/quantization_comparison.png", dpi=300)
     plt.close()
 
-def plot_val_loss_curves(self, train_losses: list, val_losses: list):
-    """Generates a standard standalone plot for this specific pipeline run for debugging purposes."""
-    os.makedirs("results/debug", exist_ok=True)
-    clean_name = self.pipeline_name.lower().replace(" ", "_")
-    filepath = f"results/debug/{clean_name}_loss_curve.png"
-
-    plt.figure(figsize=(10, 6))
-    epochs = range(1, len(train_losses) + 1)
-    
-    plt.plot(epochs, train_losses, label='Train Loss', marker='o')
-    plt.plot(epochs, val_losses, label='Val Loss', marker='s')
-    
-    plt.title(f'Loss Curve: {self.pipeline_name}', fontsize=14)
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.grid(True, linestyle=':', alpha=0.7)
-    
-    plt.savefig(filepath)
-    print(f"[*] Saved training curve to '{filepath}'")
-    plt.close() # Close it so it doesn't pop up and pause a headless server script!
-
 # ---------------------------------------------------------
 # 4. EXECUTION
 # ---------------------------------------------------------
@@ -452,7 +446,6 @@ if __name__ == "__main__":
     data = load_data()
     
     print("[*] Generating comprehensive visualization suite...")
-    # Original / Pruning plots
     plot_master_pr_curve(data)
     plot_convergence_overlay(data)
     plot_dual_axis_pruning(data["pruned"])

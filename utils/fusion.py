@@ -14,12 +14,12 @@ def _fuse_conv_bn(conv_w, bn_rm, bn_rv, bn_w, bn_b, conv_b=None):
     
     return fused_conv, fused_bias
 
-def fuse_model_weights(sd_path: str, device: torch.device) -> dict:
+def fuse_model_weights(sd: dict, device: torch.device) -> dict:
     """Loads an unfused state_dict and returns a fused state_dict."""
-    base_sd = torch.load(sd_path, map_location=device, weights_only=True)
+    base_sd = sd
     fused_sd = dict(base_sd)
     
-    print(f"[*] Fusing Convolutional and Batchnorm weights from {os.path.basename(sd_path)}...")
+    print(f"[*] Fusing Convolutional and Batchnorm weights...")
     for i in range(1, 9):
         conv_w = base_sd[f"conv{i}.weight"]
         conv_b = base_sd.get(f"conv{i}.bias", None)
@@ -41,18 +41,38 @@ def fuse_model_weights(sd_path: str, device: torch.device) -> dict:
     
     return fused_sd
 
-def load_fused_model(sd_path: str, device: torch.device) -> TinyYoloV2:
-    """Loads an unfused checkpoint, fuses weights, and returns an instantiated Fused TinyYoloV2 model."""
-    base_sd = torch.load(sd_path, map_location=device, weights_only=True)
+from typing import Dict, Any, Union
+import torch
+
+def load_fused_model(state_dict: Union[str, Dict[str, Any]], device: torch.device) -> TinyYoloV2:
+    """
+    Loads an unfused checkpoint (from memory or disk), fuses weights, 
+    and returns an instantiated Fused TinyYoloV2 model.
+    """
+    # 1. Handle both file paths and in-memory dictionaries
+    if isinstance(state_dict, str):
+        print(f"[*] Loading unfused weights from disk: {state_dict}")
+        base_sd = torch.load(state_dict, map_location=device, weights_only=True)
+    elif isinstance(state_dict, dict):
+        print("[*] Loading unfused weights directly from memory")
+        base_sd = state_dict
+    else:
+        raise TypeError(f"Expected file path (str) or state dict (dict), got {type(state_dict).__name__}")
+
+    # 2. Extract architecture parameters dynamically
     num_classes = int((base_sd['conv9.weight'].shape[0] / 5) - 5)
     channels = [base_sd[f'conv{i}.weight'].shape[0] for i in range(1, 9)]
     
-    fused_sd = fuse_model_weights(sd_path, device)
+    # 3. Fuse the weights
+    # IMPORTANT: Pass the loaded base_sd dictionary here, NOT a file path!
+    fused_sd = fuse_model_weights(base_sd, device)
     
+    # 4. Build and load the fused model
     model = TinyYoloV2(num_classes=num_classes, channels=channels, fused=True)
     model.load_state_dict(fused_sd, strict=False)
     model.to(device)
     model.eval()
+    
     return model
 
 def export_fused_onnx(model: TinyYoloV2, dummy_input: torch.Tensor, dest_path: str) -> str:

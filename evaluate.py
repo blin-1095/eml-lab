@@ -195,13 +195,13 @@ def evaluate_model(sd_path: str, device: torch.device = None, test_loader: DataL
     # 4. Run your precise Benchmark function
     print("\n[*] Benchmarking Inference Speed...")
     fps = benchmark_inference_speed(model, test_loader, device)
-    print(f"✅ Speed: {fps:.1f} FPS")
+    print(f"Speed: {fps:.1f} FPS")
 
     # 5. Calculate Test Loss and Average Precision
     print("\n[*] Calculating Test Loss and Average Precision (AP)...")
     metrics_dict = calculate_metrics(model, test_loader, device)
     total_params = sum(p.numel() for p in model.parameters())
-    print(f"✅ Accuracy: {metrics_dict['ap']:.4f} AP | Test Loss: {metrics_dict['test_loss']:.4f} | Parameters: {total_params:,}")
+    print(f"Accuracy: {metrics_dict['ap']:.4f} AP | Test Loss: {metrics_dict['test_loss']:.4f} | Parameters: {total_params:,}")
     
     # 6. LOG AND SAVE RAW DATA
     print(f"\n[*] Updating JSON report for '{pipeline_name}'...")
@@ -232,7 +232,7 @@ def evaluate_model(sd_path: str, device: torch.device = None, test_loader: DataL
     gc.collect()
     torch.cuda.empty_cache()
     
-    print(f"\n✅ Done! Results saved to raw_data/{pipeline_name}.json")
+    print(f"\nDone! Results saved to raw_data/{pipeline_name}.json")
     return final_results
 
 if __name__ == "__main__":
