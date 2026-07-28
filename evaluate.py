@@ -147,7 +147,6 @@ def export_model_onnx(state_dict: dict, test_loader, device: torch.device, dest_
         opset_version=11,
         input_names=['input_image'],
         output_names=['yolo_output'],
-        dynamic_axes={'input_image': {0: 'batch_size'}, 'yolo_output': {0: 'batch_size'}}
     )
 
     print(f"[*] Exported model to '{dest_path}'! (Classes: {num_classes}, Fused: {is_fused})")
