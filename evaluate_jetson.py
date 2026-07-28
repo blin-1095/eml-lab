@@ -1,4 +1,5 @@
 import os
+import re
 import argparse
 import torch
 
@@ -53,6 +54,13 @@ def main():
         
         test_loader = loaders[classes]
 
+        # Extract pruning ratio from filename (e.g., "pruned_pipeline_40" -> 0.40)
+        pruning_ratio = 0.0
+        if "pruned" in pipeline_name.lower():
+            match = re.search(r'(\d+)', pipeline_name)
+            if match:
+                pruning_ratio = float(match.group(1)) / 100.0
+
         # Run the evaluation using the logic from evaluate.py
         try:
             evaluate_model(
@@ -60,6 +68,7 @@ def main():
                 device=device,
                 test_loader=test_loader,
                 pipeline_name=pipeline_name,
+                pruning_ratio=pruning_ratio,
                 export_onnx=False
             )
         except Exception as e:

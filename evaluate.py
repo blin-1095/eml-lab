@@ -156,7 +156,7 @@ def export_model_onnx(state_dict: dict, test_loader, device: torch.device, dest_
 # 2. MAIN EVALUATION LOGIC
 # =====================================================================
 
-def evaluate_model(sd_path: str, device: torch.device = None, test_loader: DataLoader = None, pipeline_name: str = None, export_onnx: bool = False):
+def evaluate_model(sd_path: str, device: torch.device = None, test_loader: DataLoader = None, pipeline_name: str = None, export_onnx: bool = False, pruning_ratio: float = 0.0):
     """Loads a model, evaluates Test Loss/AP, benchmarks FPS, and logs the results."""
     
     if not os.path.exists(sd_path):
@@ -214,7 +214,7 @@ def evaluate_model(sd_path: str, device: torch.device = None, test_loader: DataL
         "total_parameters": total_params,
         "test_precision_levels": metrics_dict["precision_levels"],
         "test_recall_levels": metrics_dict["recall_levels"],
-        "pruning_ratio": 0.0 
+        "pruning_ratio": pruning_ratio 
     }
     
     logger.log_final_metrics(final_results)

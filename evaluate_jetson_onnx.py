@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import argparse
 import torch
@@ -84,6 +85,13 @@ def evaluate_onnx_session(session: ort.InferenceSession, test_loader, pipeline_n
     logger = ExperimentLogger(pipeline_name)
     logger.train_losses = []
     logger.val_losses = []
+
+    # Extract pruning ratio from filename (e.g., "pruned_pipeline_40" -> 0.40)
+    pruning_ratio = 0.0
+    if "pruned" in pipeline_name.lower():
+        match = re.search(r'(\d+)', pipeline_name)
+        if match:
+            pruning_ratio = float(match.group(1)) / 100.0
     
     final_results = {
         "test_loss": 0.0,
@@ -93,7 +101,7 @@ def evaluate_onnx_session(session: ort.InferenceSession, test_loader, pipeline_n
         "total_parameters": 0, # Not applicable for raw ONNX files
         "test_precision_levels": test_precision,
         "test_recall_levels": test_recall,
-        "pruning_ratio": 0.0 
+        "pruning_ratio": pruning_ratio 
     }
     
     logger.log_final_metrics(final_results)
