@@ -24,6 +24,10 @@ def load_metrics_data():
                 
                 # Ensure the necessary keys exist before adding to our plotting list
                 if "inference_time_ms" in experiment and "ap" in experiment and "pruning_ratio" in experiment:
+                    # Fallback to grab pipeline_name from filename if not inside JSON
+                    if "pipeline_name" not in experiment:
+                        experiment["pipeline_name"] = os.path.basename(filepath).replace('.json', '')
+                    
                     data.append(experiment)
         except Exception as e:
             print(f"[!] Failed to load {filepath}: {e}")
@@ -34,17 +38,21 @@ def load_metrics_data():
 # 2. PLOTTING FUNCTIONS
 # ==========================================
 
-def plot_pruning_pareto(data):
+def plot_pruning_pareto(pruned_data):
     """
-    Scatter plot to easily identify the optimal model.
+    Scatter plot to easily identify the optimal pruned model.
     With X = Inference Time and Y = AP, the optimal models are in the TOP-LEFT.
     """
+    if not pruned_data:
+        print("  [!] No pruned data available to plot.")
+        return
+
     plt.figure(figsize=(8, 6))
     
     # Extract data for axes
-    inf_times = [d["inference_time_ms"] for d in data]
-    aps = [d["ap"] for d in data]
-    ratios = [d["pruning_ratio"] for d in data]
+    inf_times = [d["inference_time_ms"] for d in pruned_data]
+    aps = [d["ap"] for d in pruned_data]
+    ratios = [d["pruning_ratio"] for d in pruned_data]
     
     # Create scatter plot mapped to pruning ratios
     scatter = plt.scatter(inf_times, aps, s=150, c=ratios, cmap='viridis', zorder=5, edgecolors='black')
@@ -54,7 +62,7 @@ def plot_pruning_pareto(data):
     cbar.set_label('Pruning Ratio', fontweight='bold')
     
     # Annotate points with their pruning ratio
-    for idx in range(len(data)):
+    for idx in range(len(pruned_data)):
         plt.annotate(
             f"{ratios[idx]:.2f}", 
             (inf_times[idx], aps[idx]), 
@@ -102,14 +110,19 @@ def generate_all_plots(data):
     """
     os.makedirs(PLOT_DIR, exist_ok=True)
     
-    print("[*] Generating Pareto Scatter Plot...")
-    plot_pruning_pareto(data)
+    # --- FILTER DATA SEPARATELY FOR EACH PLOT ---
+    
+    # 1. Filter specifically for pruned models (ignores regular ONNX/Quantized runs)
+    pruned_data = [d for d in data if "pruned" in d.get("pipeline_name", "").lower()]
+    
+    print(f"[*] Generating Pareto Scatter Plot (Found {len(pruned_data)} pruned models)...")
+    plot_pruning_pareto(pruned_data)
     
     # -----------------------------------------------------
     # 💡 REGISTER NEW PLOTS HERE
     # -----------------------------------------------------
     # print("[*] Generating Precision-Recall Curves...")
-    # plot_precision_recall_curves(data)
+    # plot_precision_recall_curves(data)  <-- You can pass all `data` or a filtered subset!
 
 
 if __name__ == "__main__":
@@ -117,7 +130,7 @@ if __name__ == "__main__":
     experiment_data = load_metrics_data()
     
     if experiment_data:
-        print(f"[*] Found {len(experiment_data)} experiments. Generating plots...\n")
+        print(f"[*] Found {len(experiment_data)} total experiments. Generating plots...\n")
         generate_all_plots(experiment_data)
         print("\n[*] All plots generated successfully!")
     else:
