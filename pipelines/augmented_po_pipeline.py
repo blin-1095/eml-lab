@@ -9,10 +9,11 @@ from torch.utils.data import DataLoader
 from typing_extensions import Optional
 from typing import cast
 
-class PersonOnlyPipeline(BasePipeline):
+from transformation.transform_generator import TransformGenerator
+
+class AugmentedPersonOnlyPipeline(BasePipeline):
     """
-    Person-only detection pipeline.
-    Finetunes a loaded state dict or trains a network with only-person detection.
+    Master pipeline for applying person only detection training with augmented data.
     """
     def __init__(
         self, 
@@ -23,6 +24,7 @@ class PersonOnlyPipeline(BasePipeline):
         device: torch.device, 
         learning_rate: float, 
         epochs: int, 
+        transform_generator: TransformGenerator,
         patience: int = 20
     ):
         super().__init__(
@@ -35,6 +37,9 @@ class PersonOnlyPipeline(BasePipeline):
             epochs=epochs,
             patience=patience
         )
+
+        self.transform_generator = transform_generator
+        self.total_params = sum([t.get_required_params_amount() for t in self.transform_generator.get_transformations()])
 
     def _setup_model(self) -> torch.nn.Module:
         """
@@ -63,7 +68,7 @@ class PersonOnlyPipeline(BasePipeline):
             print(f"[*] No weights loaded. Training fresh network.")
             return model.to(self.device)
 
-        print(f"[*] Loading weights.")
+        print(f"[*] Loading weights")
         state_dict = cast(dict, self._state_dict)
 
         # load pretrained weights but skip 9th layer as we have to retrain it 
@@ -80,6 +85,13 @@ class PersonOnlyPipeline(BasePipeline):
         return model.to(self.device)
 
     def _preprocess_batch(self, images: torch.Tensor, targets: torch.Tensor):
-        """No preprocessing required in the baseline model"""
+        """Actively manipulates the batch with geometric/photometric augmentations."""
+        if self.transform_generator is not None:
+            batch_size = images.shape[0]
             
+            # Generate the random dice rolls for the parameter values
+            random_params = torch.rand((batch_size, self.total_params), device=self.device)
+            
+            # Apply the transformations
+            images, targets = self.transform_generator.transform(random_params, images=images, targets=targets)
         return images, targets

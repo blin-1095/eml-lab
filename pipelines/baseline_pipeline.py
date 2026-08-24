@@ -19,7 +19,6 @@ class BaselinePipeline(BasePipeline):
         device: torch.device, 
         learning_rate: float, 
         epochs: int, 
-        sd_path: Optional[str] = None, 
         patience: int = 20
     ):
         super().__init__(
@@ -30,7 +29,6 @@ class BaselinePipeline(BasePipeline):
             device=device,
             learning_rate=learning_rate,
             epochs=epochs,
-            sd_path=sd_path,
             patience=patience
         )
 
@@ -38,14 +36,12 @@ class BaselinePipeline(BasePipeline):
         """Initializes TinyYOLOv2 and loads the pretrained VOC weights."""
         model = TinyYoloV2(num_classes=20)
         
-        if self.sd_path is None:
+        if self._state_dict is None:
             print(f"[*] No weights loaded. Training fresh network.'")
             return model.to(self.device)
 
-        path_to_load = self.sd_path
-        
-        print(f"[*] Loading weights from: '{path_to_load}'")
-        state_dict = torch.load(path_to_load, map_location=self.device)
+        print(f"[*] Loading weights")
+        state_dict = self._state_dict
         
         model.load_state_dict(state_dict)
         return model.to(self.device)

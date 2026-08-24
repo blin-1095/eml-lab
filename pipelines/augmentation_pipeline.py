@@ -10,30 +10,8 @@ from typing_extensions import Optional
 from transformation.transform_generator import TransformGenerator
 
 class AugmentationPipeline(BasePipeline):
-    def __init__(
-        self, 
-        pipeline_name: str, 
-        train_loader: DataLoader, 
-        val_loader: DataLoader, 
-        test_loader: DataLoader, 
-        device: torch.device, 
-        learning_rate: float, 
-        epochs: int, 
-        transform_generator: TransformGenerator,
-        sd_path: Optional[str] = None, 
-        patience: int = 20
-    ):
-        super().__init__(
-            pipeline_name=pipeline_name,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            test_loader=test_loader,
-            device=device,
-            learning_rate=learning_rate,
-            epochs=epochs,
-            sd_path=sd_path,
-            patience=patience
-        )
+    def __init__(self, transform_generator: TransformGenerator, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
         self.transform_generator = transform_generator
         self.total_params = sum([t.get_required_params_amount() for t in self.transform_generator.get_transformations()])
@@ -42,14 +20,12 @@ class AugmentationPipeline(BasePipeline):
         """Initializes TinyYOLOv2 and loads the pretrained VOC weights."""
         model = TinyYoloV2(num_classes=20)
         
-        if self.sd_path is None:
+        if self._state_dict is None:
             print(f"[*] No weights loaded. Training fresh network.'")
             return model.to(self.device)
 
-        path_to_load = self.sd_path
-        
-        print(f"[*] Loading weights from: '{path_to_load}'")
-        state_dict = torch.load(path_to_load, map_location=self.device)
+        print(f"[*] Loading weights.")
+        state_dict = self._state_dict
         
         model.load_state_dict(state_dict)
         return model.to(self.device)

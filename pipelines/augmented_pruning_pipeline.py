@@ -8,8 +8,9 @@ from pipelines.base_pipeline import BasePipeline
 # make pyright shut up
 from torch.utils.data import DataLoader
 from typing_extensions import Optional
+from transformation.transform_generator import TransformGenerator
 
-class PruningPipeline(BasePipeline):
+class AugmentedPruningPipeline(BasePipeline):
     
     def __init__(
         self, 
@@ -21,7 +22,8 @@ class PruningPipeline(BasePipeline):
         learning_rate: float, 
         epochs: int, 
         pruning_ratio: float,
-        patience: int = 20
+        transform_generator: TransformGenerator,
+        patience: int = 20,
     ):
         
         super().__init__(
@@ -36,6 +38,8 @@ class PruningPipeline(BasePipeline):
         )
 
         self.pruning_ratio = pruning_ratio
+        self.transform_generator = transform_generator
+        self.total_params = sum([t.get_required_params_amount() for t in self.transform_generator.get_transformations()])
 
     def _setup_model(self) -> torch.nn.Module:
         """
@@ -72,6 +76,13 @@ class PruningPipeline(BasePipeline):
         return pruned_model.to(self.device)
 
     def _preprocess_batch(self, images: torch.Tensor, targets: torch.Tensor):
-        """No preprocessing required in the baseline model"""
+        if self.transform_generator is not None:
+            batch_size = images.shape[0]
+            
+            # Generate the random dice rolls for the parameter values
+            random_params = torch.rand((batch_size, self.total_params), device=self.device)
+            
+            # Apply the transformations
+            images, targets = self.transform_generator.transform(random_params, images=images, targets=targets)
             
         return images, targets

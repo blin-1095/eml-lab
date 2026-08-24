@@ -1,5 +1,6 @@
 # Setup
 
+## uv
 This project is managed using **uv**.
 You need to first install **uv** to be able to initialize the python environment.
 
@@ -11,26 +12,16 @@ uv sync
 
 After that you can source the venv as usual and execute the scripts.
 
+## TensorRT
 
+Don't forget to install TensorRT!
 
 # General notes
 
-## Efficiency Score
+## Best pruned model
 
-To select the optimal model after pruning, we must evaluate both its object detection accuracy and its computational speedup. We use Average Precision (AP) rather than Validation/Test Loss as our primary accuracy metric.
-
-### Why We Use AP Instead of Loss
-Loss is a continuous proxy metric that calculates exact mathematical error (like Cross-Entropy). While necessary for backpropagation, it does not perfectly reflect final object detection quality. When a network is pruned by removing parameters, its overall confidence scores often drop slightly. This drop causes the cross-entropy loss to spike, making the model appear heavily degraded. 
-
-However, as long as those slightly lower confidence scores remain above our NMS and filtering thresholds (e.g., a box dropping from 90% to 65% confidence against a 25% threshold), the final bounding boxes output by the model remain completely unchanged. Therefore, Average Precision (AP), which evaluates the final, thresholded predictions, provides a much more accurate representation of the true performance impact of pruning.
-
-To find the best performing model that balances accuracy retention and computational speed, we use the following equation:
-
-$$
-\text{Efficiency Score} = \text{AP}_{\text{current}} \times \left( \frac{\text{FPS}_{\text{current}}}{\text{FPS}_{\text{baseline}}} \right)
-$$
-
-This calculates a speed-adjusted AP score, allowing us to mathematically quantify whether a slight drop in precision is worth the frame-rate gain. Because we are maximizing both accuracy and speed, **a higher score is better**.
+We currently use the 20% pruned model for further optimizations.
+A general measure for best pruning ratio shall be introduced sometime in the future.
 
 ## ONNX Quantization
 
@@ -45,6 +36,24 @@ True Activation Compression: Dynamic quantization only compresses model weights,
 Hardware Tensor Core Acceleration: Jetson's integrated GPU features specialized Tensor Cores designed for fast INT8 matrix multiplication. These cores require fixed, static quantization parameters to operate at peak efficiency.
 
 Jetson DLA (Deep Learning Accelerator) Support: If your Jetson model targets the hardware Deep Learning Accelerator (DLA) cores to save power, static quantization is strictly mandatory, as the DLA does not support dynamic operations.
+
+### Using TensorRT provider
+
+Using standard CUDA provider leads to this:
+
+'''
+2026-07-27 12:53:13.725899659 [W:onnxruntime:, transformer_memcpy.cc:74 ApplyImpl] 11 Memcpy nodes are added to the graph main_graph for CUDAExecutionProvider. It might have negative impact on performance (including unable to run CUDA graph). Set session_options.log_severity_level=1 to see the detail logs before this message.
+2026-07-27 12:53:13.726878409 [W:onnxruntime:, session_state.cc:1166 VerifyEachNodeIsAssignedToAnEp] Some nodes were not assigned to the preferred execution providers which may or may not have an negative impact on performance. e.g. ORT explicitly assigns shape related ops to CPU to improve perf.
+2026-07-27 12:53:13.726891083 [W:onnxruntime:, session_state.cc:1168 VerifyEachNodeIsAssignedToAnEp] Rerunning with verbose output on a non-minimal build will show node assignments.
+'''
+
+We therefore use TensorrtExecutionProvider instead.
+TensorRT is optimized for INT8 inference. CUDA is designed for FLOAT32 training and inference.
+
+### Summary of Format Selection
+We utilize the **QDQ (Quantize-Dequantize)** format because it acts as an *Intermediate Representation* rather than a rigid execution graph. By preserving the original floating-point topology of our YOLO architecture and supplying INT8 scaling factors as separate nodes, we give hardware-specific compilers maximum flexibility. 
+
+When this QDQ graph is executed on an Nvidia Jetson, ONNX Runtime (and specifically the TensorRT Execution Provider) reads the scaling hints, strips out the Q/DQ nodes, performs advanced layer fusion, and dynamically compiles native, ultra-fast INT8 execution kernels specifically tailored to the Jetson's silicon.
 
 ## Transforms
 

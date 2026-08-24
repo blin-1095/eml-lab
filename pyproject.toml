@@ -3,14 +3,14 @@ name = "eml-lab"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = "==3.9.0"
+requires-python = ">=3.9,<3.10"
 dependencies = [
     "ipykernel>=6.29.5",
     "jupyter>=1.1.1",
     "matplotlib>=3.7.5",
     "numpy>=1.24.4",
     "onnx>=1.17.0",
-    "onnxruntime>=1.19.2",
+    "onnxruntime-gpu>=1.19.2",
     "onnxscript>=0.2.7",
     "pip>=25.0.1",
     "torch>=2.4.1",
