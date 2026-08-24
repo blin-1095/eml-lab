@@ -18,22 +18,10 @@ Don't forget to install TensorRT!
 
 # General notes
 
-## Efficiency Score
+## Best pruned model
 
-To select the optimal model after pruning, we must evaluate both its object detection accuracy and its computational speedup. We use Average Precision (AP) rather than Validation/Test Loss as our primary accuracy metric.
-
-### Why We Use AP Instead of Loss
-Loss is a continuous proxy metric that calculates exact mathematical error (like Cross-Entropy). While necessary for backpropagation, it does not perfectly reflect final object detection quality. When a network is pruned by removing parameters, its overall confidence scores often drop slightly. This drop causes the cross-entropy loss to spike, making the model appear heavily degraded. 
-
-However, as long as those slightly lower confidence scores remain above our NMS and filtering thresholds (e.g., a box dropping from 90% to 65% confidence against a 25% threshold), the final bounding boxes output by the model remain completely unchanged. Therefore, Average Precision (AP), which evaluates the final, thresholded predictions, provides a much more accurate representation of the true performance impact of pruning.
-
-To find the best performing model that balances accuracy retention and computational speed, we use the following equation:
-
-$$
-\text{Efficiency Score} = \text{AP}_{\text{current}} \times \left( \frac{\text{FPS}_{\text{current}}}{\text{FPS}_{\text{baseline}}} \right)
-$$
-
-This calculates a speed-adjusted AP score, allowing us to mathematically quantify whether a slight drop in precision is worth the frame-rate gain. Because we are maximizing both accuracy and speed, **a higher score is better**.
+We currently use the 20% pruned model for further optimizations.
+A general measure for best pruning ratio shall be introduced sometime in the future.
 
 ## ONNX Quantization
 
@@ -48,20 +36,6 @@ True Activation Compression: Dynamic quantization only compresses model weights,
 Hardware Tensor Core Acceleration: Jetson's integrated GPU features specialized Tensor Cores designed for fast INT8 matrix multiplication. These cores require fixed, static quantization parameters to operate at peak efficiency.
 
 Jetson DLA (Deep Learning Accelerator) Support: If your Jetson model targets the hardware Deep Learning Accelerator (DLA) cores to save power, static quantization is strictly mandatory, as the DLA does not support dynamic operations.
-
-### ONNX Quantization Strategy: QDQ vs. QOperator
-
-To optimize the neural network for edge deployment on the Nvidia Jetson, we applied **Static INT8 Quantization** using ONNX Runtime. ONNX supports two primary quantization formats: QOperator and QDQ. We explicitly selected **QDQ** for this pipeline. 
-
-The table below outlines the architectural differences and why QDQ is the superior format for our target hardware.
-
-| Feature | QOperator (Quantized Operator) | QDQ (Quantize-Dequantize) |
-| :--- | :--- | :--- |
-| **Graph Structure** | Destructively replaces FP32 nodes with hardcoded INT8 nodes (e.g., `QLinearConv`). | Preserves FP32 nodes, injecting `Quantize` and `Dequantize` scaling nodes around them. |
-| **Layer Fusion** | Difficult; custom integer nodes often break standard graph optimizers. | **Excellent**; preserves original topology, allowing the compiler to aggressively fuse layers. |
-| **Mixed Precision** | Rigid; extremely difficult to safely fall back to FP32 if a layer fails. | **Native**; hardware can easily ignore Q/DQ nodes and execute in FP32 if INT8 is unsupported. |
-| **Hardware Support** | Standard CPUs and basic edge accelerators. | **Advanced GPUs** (Nvidia Jetson, CUDA, TensorRT). |
-
 
 ### Using TensorRT provider
 
